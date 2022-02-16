@@ -16,6 +16,7 @@
 package com.datastax.oss.driver.internal.core.channel;
 
 import com.datastax.oss.protocol.internal.Frame;
+import edu.umd.cs.findbugs.annotations.NonNull;
 
 /**
  * The outcome of a request sent to a Cassandra node.
@@ -32,6 +33,11 @@ public interface ResponseCallback {
    * Invoked when the server replies (note that the response frame might contain an error message).
    */
   void onResponse(Frame responseFrame);
+
+  /**
+   * Invoked when the graph server replies (note that the response frame might contain an error message).
+   */
+  void onResponse(@NonNull org.apache.tinkerpop.gremlin.driver.ResultSet response);
 
   /**
    * Invoked if we couldn't get the response.

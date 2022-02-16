@@ -37,10 +37,23 @@ public class TestNodeFactory {
 
   public static DefaultNode newContactPoint(int lastIpByte, InternalDriverContext context) {
     DefaultEndPoint endPoint = newEndPoint(lastIpByte);
-    return new DefaultNode(endPoint, context);
+    return new DefaultNode(endPoint, context, false);
   }
 
   public static DefaultEndPoint newEndPoint(int lastByteOfIp) {
     return new DefaultEndPoint(new InetSocketAddress("127.0.0." + lastByteOfIp, 9042));
+  }
+
+  public static DefaultEndPoint newGraphEndPoint(int lastByteOfIp) {
+    return new DefaultEndPoint(new InetSocketAddress("127.0.0." + lastByteOfIp, 9042));
+  }
+
+  public static DefaultNode newGraphNode(int lastByteOfIp, InternalDriverContext context) {
+    return newNode(lastByteOfIp, context);
+  }
+
+  public static DefaultNode newGraphContactPoint(int lastIpByte, InternalDriverContext context) {
+    DefaultEndPoint endPoint = newEndPoint(lastIpByte);
+    return new DefaultNode(endPoint, context, true);
   }
 }

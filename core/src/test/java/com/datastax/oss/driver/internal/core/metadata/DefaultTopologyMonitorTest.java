@@ -340,13 +340,13 @@ public class DefaultTopologyMonitorTest {
         new StubbedQuery("SELECT * FROM system.peers", mockResult(peer3, peer2)));
 
     // When
-    CompletionStage<Iterable<NodeInfo>> futureInfos = topologyMonitor.refreshNodeList();
+    CompletionStage<Nodes> futureInfos = topologyMonitor.refreshNodeList();
 
     // Then
     assertThatStage(futureInfos)
         .isSuccess(
             infos -> {
-              Iterator<NodeInfo> iterator = infos.iterator();
+              Iterator<NodeInfo> iterator = infos.getNodeInfos().iterator();
               NodeInfo info1 = iterator.next();
               assertThat(info1.getEndPoint()).isEqualTo(node1.getEndPoint());
               assertThat(info1.getDatacenter()).isEqualTo("dc1");
@@ -430,7 +430,7 @@ public class DefaultTopologyMonitorTest {
     topologyMonitor.close();
 
     // When
-    CompletionStage<Iterable<NodeInfo>> futureInfos = topologyMonitor.refreshNodeList();
+    CompletionStage<Nodes> futureInfos = topologyMonitor.refreshNodeList();
 
     // Then
     assertThatStage(futureInfos)
@@ -450,13 +450,13 @@ public class DefaultTopologyMonitorTest {
         new StubbedQuery("SELECT * FROM system.peers", mockResult(peer3, peer2, peer1)));
 
     // When
-    CompletionStage<Iterable<NodeInfo>> futureInfos = topologyMonitor.refreshNodeList();
+    CompletionStage<Nodes> futureInfos = topologyMonitor.refreshNodeList();
 
     // Then
     assertThatStage(futureInfos)
         .isSuccess(
             infos ->
-                assertThat(infos)
+                assertThat(infos.getNodeInfos())
                     .hasSize(3)
                     .extractingResultOf("getEndPoint")
                     .containsOnlyOnce(node1.getEndPoint()));
@@ -480,13 +480,13 @@ public class DefaultTopologyMonitorTest {
         new StubbedQuery("SELECT * FROM system.peers_v2", mockResult(peer3, peer2, peer1)));
 
     // When
-    CompletionStage<Iterable<NodeInfo>> futureInfos = topologyMonitor.refreshNodeList();
+    CompletionStage<Nodes> futureInfos = topologyMonitor.refreshNodeList();
 
     // Then
     assertThatStage(futureInfos)
         .isSuccess(
             infos ->
-                assertThat(infos)
+                assertThat(infos.getNodeInfos())
                     .hasSize(3)
                     .extractingResultOf("getEndPoint")
                     .containsOnlyOnce(node1.getEndPoint()));

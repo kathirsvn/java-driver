@@ -42,12 +42,14 @@ public class AddNodeRefreshTest {
   @Mock private ChannelFactory channelFactory;
 
   private DefaultNode node1;
+  private DefaultNode graphNode1;
 
   @Before
   public void setup() {
     when(context.getMetricsFactory()).thenReturn(metricsFactory);
     when(context.getChannelFactory()).thenReturn(channelFactory);
     node1 = TestNodeFactory.newNode(1, context);
+    graphNode1 = TestNodeFactory.newGraphNode(2, context);
   }
 
   @Test
@@ -55,7 +57,8 @@ public class AddNodeRefreshTest {
     // Given
     DefaultMetadata oldMetadata =
         new DefaultMetadata(
-            ImmutableMap.of(node1.getHostId(), node1), Collections.emptyMap(), null, null);
+            ImmutableMap.of(node1.getHostId(), node1),
+                ImmutableMap.of(graphNode1.getHostId(), graphNode1), Collections.emptyMap(), null, null);
     UUID newHostId = Uuids.random();
     DefaultEndPoint newEndPoint = TestNodeFactory.newEndPoint(2);
     UUID newSchemaVersion = Uuids.random();
@@ -89,7 +92,7 @@ public class AddNodeRefreshTest {
     // Given
     DefaultMetadata oldMetadata =
         new DefaultMetadata(
-            ImmutableMap.of(node1.getHostId(), node1), Collections.emptyMap(), null, null);
+            ImmutableMap.of(node1.getHostId(), node1),ImmutableMap.of(graphNode1.getHostId(), graphNode1), Collections.emptyMap(), null, null);
     DefaultNodeInfo newNodeInfo =
         DefaultNodeInfo.builder()
             .withHostId(node1.getHostId())
@@ -115,7 +118,7 @@ public class AddNodeRefreshTest {
     // Given
     DefaultMetadata oldMetadata =
         new DefaultMetadata(
-            ImmutableMap.of(node1.getHostId(), node1), Collections.emptyMap(), null, null);
+            ImmutableMap.of(node1.getHostId(), node1), ImmutableMap.of(graphNode1.getHostId(), graphNode1), Collections.emptyMap(), null, null);
     DefaultEndPoint newEndPoint = TestNodeFactory.newEndPoint(2);
     InetSocketAddress newBroadcastRpcAddress = newEndPoint.resolve();
     UUID newSchemaVersion = Uuids.random();

@@ -53,6 +53,8 @@ import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+
+import org.apache.tinkerpop.gremlin.driver.Result;
 import org.apache.tinkerpop.gremlin.process.traversal.Traverser;
 import org.apache.tinkerpop.gremlin.structure.io.Buffer;
 import org.apache.tinkerpop.gremlin.structure.io.BufferFactory;
@@ -404,5 +406,9 @@ public class GraphConversions extends Conversions {
     DriverExecutionProfile executionProfile =
         Conversions.resolveExecutionProfile(statement, context);
     return graphSupportChecker.inferGraphProtocol(statement, executionProfile, context);
+  }
+
+  public static GraphNode toGraphNode(Result result) {
+    return new ObjectGraphNode(result.getObject());
   }
 }

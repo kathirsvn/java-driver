@@ -137,7 +137,10 @@ public class MetadataManagerTest {
     NodeInfo info1 = mock(NodeInfo.class);
     NodeInfo info2 = mock(NodeInfo.class);
     List<NodeInfo> infos = ImmutableList.of(info1, info2);
-    when(topologyMonitor.refreshNodeList()).thenReturn(CompletableFuture.completedFuture(infos));
+    NodeInfo graphInfo1 = mock(NodeInfo.class);
+    NodeInfo graphInfo2 = mock(NodeInfo.class);
+    List<NodeInfo> graphInfos = ImmutableList.of(graphInfo1, graphInfo2);
+    when(topologyMonitor.refreshNodeList()).thenReturn(CompletableFuture.completedFuture(new Nodes(infos, graphInfos)));
 
     // When
     CompletionStage<Void> refreshNodesFuture = metadataManager.refreshNodes();
@@ -166,7 +169,10 @@ public class MetadataManagerTest {
     NodeInfo info1 = mock(NodeInfo.class);
     NodeInfo info2 = mock(NodeInfo.class);
     List<NodeInfo> infos = ImmutableList.of(info1, info2);
-    when(topologyMonitor.refreshNodeList()).thenReturn(CompletableFuture.completedFuture(infos));
+    NodeInfo graphInfo1 = mock(NodeInfo.class);
+    NodeInfo graphInfo2 = mock(NodeInfo.class);
+    List<NodeInfo> grapnInfos = ImmutableList.of(graphInfo1, graphInfo2);
+    when(topologyMonitor.refreshNodeList()).thenReturn(CompletableFuture.completedFuture(new Nodes(infos, grapnInfos)));
 
     // When
     CompletionStage<Void> refreshNodesFuture = metadataManager.refreshNodes();

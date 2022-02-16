@@ -214,4 +214,6 @@ public interface Node {
    */
   @Nullable
   UUID getSchemaVersion();
+
+  boolean isGraphNode();
 }

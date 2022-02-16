@@ -45,6 +45,14 @@ public interface Metadata {
   Map<UUID, Node> getNodes();
 
   /**
+   * The nodes known to the driver, indexed by their unique identifier ({@code host_id} in {@code
+   * system.local}/{@code system.peers}). This might include nodes that are currently viewed as
+   * down, or ignored by the load balancing policy.
+   */
+  @NonNull
+  Map<UUID, Node> getGraphNodes();
+
+  /**
    * Finds the node with the given {@linkplain Node#getEndPoint() connection information}, if it
    * exists.
    *

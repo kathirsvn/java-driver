@@ -20,6 +20,9 @@ import com.datastax.oss.driver.internal.core.context.InternalDriverContext;
 import com.datastax.oss.driver.shaded.guava.common.annotations.VisibleForTesting;
 import com.datastax.oss.driver.shaded.guava.common.collect.ImmutableList;
 import com.datastax.oss.driver.shaded.guava.common.collect.ImmutableMap;
+
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import net.jcip.annotations.ThreadSafe;
@@ -37,17 +40,28 @@ public class AddNodeRefresh extends NodesRefresh {
   public Result compute(
       DefaultMetadata oldMetadata, boolean tokenMapEnabled, InternalDriverContext context) {
     Map<UUID, Node> oldNodes = oldMetadata.getNodes();
+    Map<UUID, Node> oldGraphNodes = oldMetadata.getGraphNodes();
     Node existing = oldNodes.get(newNodeInfo.getHostId());
+    Node existingGraph = oldGraphNodes != null ? oldGraphNodes.get(newNodeInfo.getHostId()) : null;
     if (existing == null) {
-      DefaultNode newNode = new DefaultNode(newNodeInfo.getEndPoint(), context);
+      DefaultNode newNode = new DefaultNode(newNodeInfo.getEndPoint(), context, newNodeInfo.isGraphNode());
       copyInfos(newNodeInfo, newNode, context);
       Map<UUID, Node> newNodes =
           ImmutableMap.<UUID, Node>builder()
               .putAll(oldNodes)
               .put(newNode.getHostId(), newNode)
               .build();
+      Map<UUID, Node> newGraphNodes = new HashMap<>();
+      if(existingGraph == null){
+        DefaultNode newGraphNode = new DefaultNode(newNodeInfo.getEndPoint(), context, newNodeInfo.isGraphNode());
+        copyInfos(newNodeInfo, newGraphNode, context);
+        newGraphNodes = ImmutableMap.<UUID, Node>builder()
+                        .putAll(oldGraphNodes != null ? oldGraphNodes : new HashMap<>())
+                        .put(newGraphNode.getHostId(), newGraphNode)
+                        .build();
+      }
       return new Result(
-          oldMetadata.withNodes(newNodes, tokenMapEnabled, false, null, context),
+          oldMetadata.withNodes(newNodes, newGraphNodes, tokenMapEnabled, false, null, context),
           ImmutableList.of(NodeStateEvent.added(newNode)));
     } else {
       // If a node is restarted after changing its broadcast RPC address, Cassandra considers that

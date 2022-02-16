@@ -65,6 +65,7 @@ public class NodeStateManagerTest {
   @Mock private MetadataManager metadataManager;
   @Mock protected MetricsFactory metricsFactory;
   private DefaultNode node1, node2;
+  private DefaultNode graphNode1, graphNode2;
   private EventBus eventBus;
   private DefaultEventLoopGroup adminEventLoopGroup;
 
@@ -94,7 +95,12 @@ public class NodeStateManagerTest {
             .put(node1.getHostId(), node1)
             .put(node2.getHostId(), node2)
             .build();
-    Metadata metadata = new DefaultMetadata(nodes, Collections.emptyMap(), null, null);
+    ImmutableMap<UUID, Node> graphNodes =
+            ImmutableMap.<UUID, Node>builder()
+                    .put(graphNode1.getHostId(), graphNode1)
+                    .put(graphNode2.getHostId(), graphNode2)
+                    .build();
+    Metadata metadata = new DefaultMetadata(nodes, graphNodes, Collections.emptyMap(), null, null);
     when(metadataManager.getMetadata()).thenReturn(metadata);
     when(metadataManager.refreshNode(any(Node.class)))
         .thenReturn(CompletableFuture.completedFuture(null));

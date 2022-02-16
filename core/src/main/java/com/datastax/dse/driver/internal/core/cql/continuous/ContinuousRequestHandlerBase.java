@@ -17,8 +17,11 @@ package com.datastax.dse.driver.internal.core.cql.continuous;
 
 import com.datastax.dse.driver.api.core.DseProtocolVersion;
 import com.datastax.dse.driver.api.core.cql.continuous.ContinuousAsyncResultSet;
+import com.datastax.dse.driver.api.core.graph.ScriptGraphStatement;
 import com.datastax.dse.driver.internal.core.DseProtocolFeature;
 import com.datastax.dse.driver.internal.core.cql.DseConversions;
+import com.datastax.dse.driver.internal.core.graph.DefaultFluentGraphStatement;
+import com.datastax.dse.driver.internal.core.graph.GraphProtocol;
 import com.datastax.dse.protocol.internal.request.Revise;
 import com.datastax.dse.protocol.internal.response.result.DseRowsMetadata;
 import com.datastax.oss.driver.api.core.AllNodesFailedException;
@@ -101,6 +104,13 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 import net.jcip.annotations.GuardedBy;
 import net.jcip.annotations.ThreadSafe;
+import org.apache.tinkerpop.gremlin.driver.Client;
+import org.apache.tinkerpop.gremlin.driver.Cluster;
+import org.apache.tinkerpop.gremlin.driver.ResultSet;
+import org.apache.tinkerpop.gremlin.driver.Tokens;
+import org.apache.tinkerpop.gremlin.driver.message.RequestMessage;
+import org.apache.tinkerpop.gremlin.jsr223.JavaTranslator;
+import org.apache.tinkerpop.gremlin.process.traversal.Translator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -109,7 +119,7 @@ import org.slf4j.LoggerFactory;
  */
 @ThreadSafe
 public abstract class ContinuousRequestHandlerBase<StatementT extends Request, ResultSetT>
-    implements Throttled {
+        implements Throttled {
 
   private static final Logger LOG = LoggerFactory.getLogger(ContinuousRequestHandlerBase.class);
 
@@ -164,23 +174,23 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
   private final Class<ResultSetT> resultSetClass;
 
   public ContinuousRequestHandlerBase(
-      @NonNull StatementT statement,
-      @NonNull DefaultSession session,
-      @NonNull InternalDriverContext context,
-      @NonNull String sessionLogPrefix,
-      @NonNull Class<ResultSetT> resultSetClass,
-      boolean specExecEnabled,
-      SessionMetric clientTimeoutsMetric,
-      SessionMetric continuousRequestsMetric,
-      NodeMetric messagesMetric) {
+          @NonNull StatementT statement,
+          @NonNull DefaultSession session,
+          @NonNull InternalDriverContext context,
+          @NonNull String sessionLogPrefix,
+          @NonNull Class<ResultSetT> resultSetClass,
+          boolean specExecEnabled,
+          SessionMetric clientTimeoutsMetric,
+          SessionMetric continuousRequestsMetric,
+          NodeMetric messagesMetric) {
     this.resultSetClass = resultSetClass;
 
     ProtocolVersion protocolVersion = context.getProtocolVersion();
     if (!context
-        .getProtocolVersionRegistry()
-        .supports(protocolVersion, DseProtocolFeature.CONTINUOUS_PAGING)) {
+            .getProtocolVersionRegistry()
+            .supports(protocolVersion, DseProtocolFeature.CONTINUOUS_PAGING)) {
       throw new IllegalStateException(
-          "Cannot execute continuous paging requests with protocol version " + protocolVersion);
+              "Cannot execute continuous paging requests with protocol version " + protocolVersion);
     }
     this.clientTimeoutsMetric = clientTimeoutsMetric;
     this.continuousRequestsMetric = continuousRequestsMetric;
@@ -192,17 +202,17 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
     this.keyspace = session.getKeyspace().orElse(null);
     this.context = context;
     DriverExecutionProfile executionProfile =
-        Conversions.resolveExecutionProfile(statement, context);
+            Conversions.resolveExecutionProfile(statement, context);
     this.queryPlan =
-        statement.getNode() != null
-            ? new SimpleQueryPlan(statement.getNode())
-            : context
-                .getLoadBalancingPolicyWrapper()
-                .newQueryPlan(statement, executionProfile.getName(), session);
+            statement.getNode() != null
+                    ? new SimpleQueryPlan(statement.getNode())
+                    : context
+                    .getLoadBalancingPolicyWrapper()
+                    .newGraphQueryPlan(statement, executionProfile.getName(), session);
     this.timer = context.getNettyOptions().getTimer();
 
     this.protocolBackpressureAvailable =
-        protocolVersion.getCode() >= DseProtocolVersion.DSE_V2.getCode();
+            protocolVersion.getCode() >= DseProtocolVersion.DSE_V2.getCode();
     this.throttler = context.getRequestThrottler();
     this.sessionMetricUpdater = session.getMetricUpdater();
     this.startTimeNanos = System.nanoTime();
@@ -238,29 +248,29 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
 
   @NonNull
   protected abstract ResultSetT createResultSet(
-      @NonNull StatementT statement,
-      @NonNull Rows rows,
-      @NonNull ExecutionInfo executionInfo,
-      @NonNull ColumnDefinitions columnDefinitions)
-      throws IOException;
+          @NonNull StatementT statement,
+          @NonNull Rows rows,
+          @NonNull ExecutionInfo executionInfo,
+          @NonNull ColumnDefinitions columnDefinitions)
+          throws IOException;
 
   // MAIN LIFECYCLE
 
   @Override
   public void onThrottleReady(boolean wasDelayed) {
     DriverExecutionProfile executionProfile =
-        Conversions.resolveExecutionProfile(initialStatement, context);
+            Conversions.resolveExecutionProfile(initialStatement, context);
     if (wasDelayed
-        // avoid call to nanoTime() if metric is disabled:
-        && sessionMetricUpdater.isEnabled(
+            // avoid call to nanoTime() if metric is disabled:
+            && sessionMetricUpdater.isEnabled(
             DefaultSessionMetric.THROTTLING_DELAY, executionProfile.getName())) {
       session
-          .getMetricUpdater()
-          .updateTimer(
-              DefaultSessionMetric.THROTTLING_DELAY,
-              executionProfile.getName(),
-              System.nanoTime() - startTimeNanos,
-              TimeUnit.NANOSECONDS);
+              .getMetricUpdater()
+              .updateTimer(
+                      DefaultSessionMetric.THROTTLING_DELAY,
+                      executionProfile.getName(),
+                      System.nanoTime() - startTimeNanos,
+                      TimeUnit.NANOSECONDS);
     }
     activeExecutionsCount.incrementAndGet();
     sendRequest(initialStatement, null, 0, 0, specExecEnabled);
@@ -269,10 +279,10 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
   @Override
   public void onThrottleFailure(@NonNull RequestThrottlingException error) {
     DriverExecutionProfile executionProfile =
-        Conversions.resolveExecutionProfile(initialStatement, context);
+            Conversions.resolveExecutionProfile(initialStatement, context);
     session
-        .getMetricUpdater()
-        .incrementCounter(DefaultSessionMetric.THROTTLING_ERRORS, executionProfile.getName());
+            .getMetricUpdater()
+            .incrementCounter(DefaultSessionMetric.THROTTLING_ERRORS, executionProfile.getName());
     abortGlobalRequestOrChosenCallback(error);
   }
 
@@ -298,30 +308,30 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
     // `chosenCallback.thenCompose(NodeResponseCallback::dequeueOrCreatePending)`, except
     // that we need to cancel `result` if `resultSetError` is a CancellationException.
     chosenCallback.whenComplete(
-        (callback, callbackError) -> {
-          if (callbackError != null) {
-            result.completeExceptionally(callbackError);
-          } else {
-            callback
-                .dequeueOrCreatePending()
-                .whenComplete(
-                    (resultSet, resultSetError) -> {
-                      if (resultSetError != null) {
-                        result.completeExceptionally(resultSetError);
-                      } else {
-                        result.complete(resultSet);
-                      }
-                    });
-          }
-        });
+            (callback, callbackError) -> {
+              if (callbackError != null) {
+                result.completeExceptionally(callbackError);
+              } else {
+                callback
+                        .dequeueOrCreatePending()
+                        .whenComplete(
+                                (resultSet, resultSetError) -> {
+                                  if (resultSetError != null) {
+                                    result.completeExceptionally(resultSetError);
+                                  } else {
+                                    result.complete(resultSet);
+                                  }
+                                });
+              }
+            });
 
     // If the user cancels the future, propagate to our internal components
     result.whenComplete(
-        (rs, t) -> {
-          if (t instanceof CancellationException) {
-            cancel();
-          }
-        });
+            (rs, t) -> {
+              if (t instanceof CancellationException) {
+                cancel();
+              }
+            });
 
     return result;
   }
@@ -338,15 +348,17 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
    * @param scheduleSpeculativeExecution whether to schedule the next speculative execution
    */
   private void sendRequest(
-      StatementT statement,
-      @Nullable Node node,
-      int currentExecutionIndex,
-      int retryCount,
-      boolean scheduleSpeculativeExecution) {
-    DriverChannel channel = null;
-    if (node == null || (channel = session.getChannel(node, logPrefix)) == null) {
+          StatementT statement,
+          @Nullable Node node,
+          int currentExecutionIndex,
+          int retryCount,
+          boolean scheduleSpeculativeExecution) {
+    /*DriverChannel channel = null;
+    Node availableNode = null;
+    if (node == null || (channel = session.getGraphChannel(node, logPrefix)) == null) {
       while ((node = queryPlan.poll()) != null) {
-        channel = session.getChannel(node, logPrefix);
+        availableNode = node;
+        channel = session.getGraphChannel(node, logPrefix);
         if (channel != null) {
           break;
         } else {
@@ -354,7 +366,36 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
         }
       }
     }
-    if (channel == null) {
+    while((channel = session.getGraphChannel(availableNode, logPrefix)) == null){
+      try {
+        Thread.sleep(200);
+      } catch (InterruptedException e) {
+        e.printStackTrace();
+      }
+    }*/
+    Cluster cluster = Cluster.build("192.168.1.12").port(28182).create();
+    Client client = cluster.connect();
+    NodeResponseCallback nodeResponseCallback =
+            new NodeResponseCallback(
+                    statement,
+                    node,
+                    null,
+                    currentExecutionIndex,
+                    retryCount,
+                    scheduleSpeculativeExecution,
+                    logPrefix);
+    if(statement instanceof ScriptGraphStatement) {
+      client.submitAsync(constructMessage(statement))
+              .whenComplete((response, error) -> {
+                nodeResponseCallback.onResponse(response);
+              });
+    } else{
+      client.submitAsync(constructRequestMessage(statement))
+              .whenComplete((response, error) -> {
+                nodeResponseCallback.onResponse(response);
+              });
+    }
+    /*if (channel == null) {
       // We've reached the end of the query plan without finding any node to write to; abort the
       // continuous paging session.
       if (activeExecutionsCount.decrementAndGet() == 0) {
@@ -362,23 +403,42 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
       }
     } else if (!chosenCallback.isDone()) {
       NodeResponseCallback nodeResponseCallback =
-          new NodeResponseCallback(
-              statement,
-              node,
-              channel,
-              currentExecutionIndex,
-              retryCount,
-              scheduleSpeculativeExecution,
-              logPrefix);
+              new NodeResponseCallback(
+                      statement,
+                      node,
+                      channel,
+                      currentExecutionIndex,
+                      retryCount,
+                      scheduleSpeculativeExecution,
+                      logPrefix);
       inFlightCallbacks.add(nodeResponseCallback);
       channel
-          .write(
-              getMessage(statement),
-              isTracingEnabled(statement),
-              createPayload(statement),
-              nodeResponseCallback)
-          .addListener(nodeResponseCallback);
+              .write(
+                      getMessage(statement),
+                      isTracingEnabled(statement),
+                      createPayload(statement),
+                      nodeResponseCallback)
+              .addListener(nodeResponseCallback);
+    }*/
+  }
+
+  private RequestMessage constructRequestMessage(StatementT statement) {
+   /* RequestMessage.Builder requestMessageBuilder = RequestMessage.build(Tokens.OPS_EVAL);
+    requestMessageBuilder.addArg("gremlin",
+            JavaTranslator.
+            JavaTranslator.of(((DefaultFluentGraphStatement)statement).getTraversalSource()).translate(
+                    ((DefaultFluentGraphStatement)statement).getTraversal().asAdmin().getBytecode())
+            );
+    return requestMessageBuilder.create();*/
+    //TODO-GRAPH
+    return null;
+  }
+
+  private String constructMessage(StatementT statement) {
+    if(statement instanceof ScriptGraphStatement){
+      return ((ScriptGraphStatement) statement).getScript();
     }
+    return null;
   }
 
   private Timeout scheduleGlobalTimeout() {
@@ -388,11 +448,11 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
     }
     LOG.trace("[{}] Scheduling global timeout for pages in {}", logPrefix, globalTimeout);
     return timer.newTimeout(
-        timeout ->
-            abortGlobalRequestOrChosenCallback(
-                new DriverTimeoutException("Query timed out after " + globalTimeout)),
-        globalTimeout.toNanos(),
-        TimeUnit.NANOSECONDS);
+            timeout ->
+                    abortGlobalRequestOrChosenCallback(
+                            new DriverTimeoutException("Query timed out after " + globalTimeout)),
+            globalTimeout.toNanos(),
+            TimeUnit.NANOSECONDS);
   }
 
   /**
@@ -470,7 +530,7 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
    * will be cancelled.
    */
   private class NodeResponseCallback
-      implements ResponseCallback, GenericFutureListener<Future<java.lang.Void>> {
+          implements ResponseCallback, GenericFutureListener<Future<java.lang.Void>> {
 
     private final long messageStartTimeNanos = System.nanoTime();
     private final StatementT statement;
@@ -541,13 +601,13 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
     private final AtomicBoolean nodeSuccessReported = new AtomicBoolean(false);
 
     public NodeResponseCallback(
-        StatementT statement,
-        Node node,
-        DriverChannel channel,
-        int executionIndex,
-        int retryCount,
-        boolean scheduleSpeculativeExecution,
-        String logPrefix) {
+            StatementT statement,
+            Node node,
+            DriverChannel channel,
+            int executionIndex,
+            int retryCount,
+            boolean scheduleSpeculativeExecution,
+            String logPrefix) {
       this.statement = statement;
       this.node = node;
       this.channel = channel;
@@ -591,8 +651,8 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
           if (message instanceof Error) {
             Error error = (Error) message;
             isLastResponse =
-                (error.code == ProtocolConstants.ErrorCode.SERVER_ERROR)
-                    && error.message.contains("Session cancelled by the user");
+                    (error.code == ProtocolConstants.ErrorCode.SERVER_ERROR)
+                            && error.message.contains("Session cancelled by the user");
           } else {
             isLastResponse = false;
           }
@@ -623,7 +683,7 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
       if (!future.isSuccess()) {
         Throwable error = future.cause();
         if (error instanceof EncoderException
-            && error.getCause() instanceof FrameTooLongException) {
+                && error.getCause() instanceof FrameTooLongException) {
           trackNodeError(node, error.getCause());
           lock.lock();
           try {
@@ -633,13 +693,13 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
           }
         } else {
           LOG.trace(
-              "[{}] Failed to send request on {}, trying next node (cause: {})",
-              logPrefix,
-              channel,
-              error);
+                  "[{}] Failed to send request on {}, trying next node (cause: {})",
+                  logPrefix,
+                  channel,
+                  error);
           ((DefaultNode) node)
-              .getMetricUpdater()
-              .incrementCounter(DefaultNodeMetric.UNSENT_REQUESTS, executionProfile.getName());
+                  .getMetricUpdater()
+                  .incrementCounter(DefaultNodeMetric.UNSENT_REQUESTS, executionProfile.getName());
           recordError(node, error);
           trackNodeError(node, error.getCause());
           sendRequest(statement, null, executionIndex, retryCount, scheduleSpeculativeExecution);
@@ -651,15 +711,15 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
           // Note that `node` is the first node of the execution, it might not be the "slow" one
           // if there were retries, but in practice retries are rare.
           long nextDelay =
-              Conversions.resolveSpeculativeExecutionPolicy(statement, context)
-                  .nextExecution(node, keyspace, statement, nextExecution);
+                  Conversions.resolveSpeculativeExecutionPolicy(statement, context)
+                          .nextExecution(node, keyspace, statement, nextExecution);
           if (nextDelay >= 0) {
             scheduleSpeculativeExecution(nextExecution, nextDelay);
           } else {
             LOG.trace(
-                "[{}] Speculative execution policy returned {}, no next execution",
-                logPrefix,
-                nextDelay);
+                    "[{}] Speculative execution policy returned {}, no next execution",
+                    logPrefix,
+                    nextDelay);
           }
         }
         pageTimeout = schedulePageTimeout(1);
@@ -668,30 +728,30 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
 
     private void scheduleSpeculativeExecution(int nextExecutionIndex, long delay) {
       LOG.trace(
-          "[{}] Scheduling speculative execution {} in {} ms",
-          logPrefix,
-          nextExecutionIndex,
-          delay);
+              "[{}] Scheduling speculative execution {} in {} ms",
+              logPrefix,
+              nextExecutionIndex,
+              delay);
       try {
         scheduledExecutions.add(
-            timer.newTimeout(
-                (Timeout timeout) -> {
-                  if (!chosenCallback.isDone()) {
-                    LOG.trace(
-                        "[{}] Starting speculative execution {}", logPrefix, nextExecutionIndex);
-                    activeExecutionsCount.incrementAndGet();
-                    startedSpeculativeExecutionsCount.incrementAndGet();
-                    NodeMetricUpdater nodeMetricUpdater = ((DefaultNode) node).getMetricUpdater();
-                    if (nodeMetricUpdater.isEnabled(
-                        DefaultNodeMetric.SPECULATIVE_EXECUTIONS, executionProfile.getName())) {
-                      nodeMetricUpdater.incrementCounter(
-                          DefaultNodeMetric.SPECULATIVE_EXECUTIONS, executionProfile.getName());
-                    }
-                    sendRequest(statement, null, nextExecutionIndex, 0, true);
-                  }
-                },
-                delay,
-                TimeUnit.MILLISECONDS));
+                timer.newTimeout(
+                        (Timeout timeout) -> {
+                          if (!chosenCallback.isDone()) {
+                            LOG.trace(
+                                    "[{}] Starting speculative execution {}", logPrefix, nextExecutionIndex);
+                            activeExecutionsCount.incrementAndGet();
+                            startedSpeculativeExecutionsCount.incrementAndGet();
+                            NodeMetricUpdater nodeMetricUpdater = ((DefaultNode) node).getMetricUpdater();
+                            if (nodeMetricUpdater.isEnabled(
+                                    DefaultNodeMetric.SPECULATIVE_EXECUTIONS, executionProfile.getName())) {
+                              nodeMetricUpdater.incrementCounter(
+                                      DefaultNodeMetric.SPECULATIVE_EXECUTIONS, executionProfile.getName());
+                            }
+                            sendRequest(statement, null, nextExecutionIndex, 0, true);
+                          }
+                        },
+                        delay,
+                        TimeUnit.MILLISECONDS));
       } catch (IllegalStateException e) {
         logTimeoutSchedulingError(e);
       }
@@ -707,7 +767,7 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
       }
       LOG.trace("[{}] Scheduling timeout for page {} in {}", logPrefix, expectedPage, timeout);
       return timer.newTimeout(
-          t -> onPageTimeout(expectedPage), timeout.toNanos(), TimeUnit.NANOSECONDS);
+              t -> onPageTimeout(expectedPage), timeout.toNanos(), TimeUnit.NANOSECONDS);
     }
 
     private void onPageTimeout(int expectedPage) {
@@ -715,16 +775,16 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
       try {
         if (state == expectedPage) {
           abort(
-              new DriverTimeoutException(
-                  String.format("Timed out waiting for page %d", expectedPage)),
-              false);
+                  new DriverTimeoutException(
+                          String.format("Timed out waiting for page %d", expectedPage)),
+                  false);
         } else {
           // Ignore timeout if the request has moved on in the interim.
           LOG.trace(
-              "[{}] Timeout fired for page {} but query already at state {}, skipping",
-              logPrefix,
-              expectedPage,
-              state);
+                  "[{}] Timeout fired for page {} but query already at state {}, skipping",
+                  logPrefix,
+                  expectedPage,
+                  state);
         }
       } finally {
         lock.unlock();
@@ -734,14 +794,20 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
     /**
      * Invoked when a continuous paging response is received, either a successful or failed one.
      *
-     * <p>Delegates further processing to appropriate methods: {@link #processResultResponse(Result,
-     * Frame)} if the response was successful, or {@link #processErrorResponse(Error)} if it wasn't.
+     * <p>Delegates further processing to appropriate methods:
+     * {@link #processResultResponse(org.apache.tinkerpop.gremlin.driver.ResultSet
+     * )} if the response was successful, or {@link #processErrorResponse(Error)} if it wasn't.
      *
      * @param response the received {@link Frame}.
      */
     @Override
     public void onResponse(@NonNull Frame response) {
-      stopNodeMessageTimer();
+
+    }
+
+    @Override
+    public void onResponse(@NonNull org.apache.tinkerpop.gremlin.driver.ResultSet resultSet) {
+      //stopNodeMessageTimer();
       cancelTimeout(pageTimeout);
       lock.lock();
       try {
@@ -750,16 +816,12 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
           return;
         }
         try {
-          Message responseMessage = response.message;
-          if (responseMessage instanceof Result) {
+          if (resultSet instanceof org.apache.tinkerpop.gremlin.driver.ResultSet) {
             LOG.trace("[{}] Got result", logPrefix);
-            processResultResponse((Result) responseMessage, response);
-          } else if (responseMessage instanceof Error) {
-            LOG.trace("[{}] Got error response", logPrefix);
-            processErrorResponse((Error) responseMessage);
+            processResultResponse(resultSet);
           } else {
             IllegalStateException error =
-                new IllegalStateException("Unexpected response " + responseMessage);
+                    new IllegalStateException("Unexpected response " + resultSet);
             trackNodeError(node, error);
             abort(error, false);
           }
@@ -786,7 +848,7 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
       LOG.trace(String.format("[%s] Request failure", logPrefix), error);
       RetryVerdict verdict;
       if (!Conversions.resolveIdempotence(statement, context)
-          || error instanceof FrameTooLongException) {
+              || error instanceof FrameTooLongException) {
         verdict = RetryVerdict.RETHROW;
       } else {
         try {
@@ -794,17 +856,17 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
           verdict = retryPolicy.onRequestAbortedVerdict(statement, error, retryCount);
         } catch (Throwable cause) {
           abort(
-              new IllegalStateException("Unexpected error while invoking the retry policy", cause),
-              false);
+                  new IllegalStateException("Unexpected error while invoking the retry policy", cause),
+                  false);
           return;
         }
       }
       updateErrorMetrics(
-          ((DefaultNode) node).getMetricUpdater(),
-          verdict,
-          DefaultNodeMetric.ABORTED_REQUESTS,
-          DefaultNodeMetric.RETRIES_ON_ABORTED,
-          DefaultNodeMetric.IGNORES_ON_ABORTED);
+              ((DefaultNode) node).getMetricUpdater(),
+              verdict,
+              DefaultNodeMetric.ABORTED_REQUESTS,
+              DefaultNodeMetric.RETRIES_ON_ABORTED,
+              DefaultNodeMetric.IGNORES_ON_ABORTED);
       lock.lock();
       try {
         processRetryVerdict(verdict, error);
@@ -819,57 +881,20 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
      * Processes a new result response, creating the corresponding {@link ResultSetT} object and
      * then enqueuing it or serving it directly to the user if he was waiting for it.
      *
-     * @param result the result to process. It is normally a {@link Rows} object, but may be a
+     * @param resultFromServer the result to process. It is normally a {@link Rows} object, but may be a
      *     {@link Void} object if the retry policy decided to ignore an error.
-     * @param frame the {@link Frame} (used to create the {@link ExecutionInfo} the first time).
      */
     @SuppressWarnings("GuardedBy") // this method is only called with the lock held
-    private void processResultResponse(@NonNull Result result, @Nullable Frame frame) {
+    private void processResultResponse(@Nullable org.apache.tinkerpop.gremlin.driver.ResultSet resultFromServer) {
       assert lock.isHeldByCurrentThread();
       try {
-        ExecutionInfo executionInfo = createExecutionInfo(result, frame);
-        if (result instanceof Rows) {
-          DseRowsMetadata rowsMetadata = (DseRowsMetadata) ((Rows) result).getMetadata();
-          if (columnDefinitions == null) {
-            // Contrary to ROWS responses from regular queries,
-            // the first page always includes metadata so we use this
-            // regardless of whether or not the query was from a prepared statement.
-            columnDefinitions = Conversions.toColumnDefinitions(rowsMetadata, context);
-          }
-          int pageNumber = rowsMetadata.continuousPageNumber;
-          int currentPage = state;
-          if (pageNumber != currentPage) {
-            abort(
-                new IllegalStateException(
-                    String.format(
-                        "Received page %d but was expecting %d", pageNumber, currentPage)),
-                false);
-          } else {
-            int pageSize = ((Rows) result).getData().size();
-            ResultSetT resultSet =
-                createResultSet(statement, (Rows) result, executionInfo, columnDefinitions);
-            if (rowsMetadata.isLastContinuousPage) {
-              LOG.trace("[{}] Received last page ({} - {} rows)", logPrefix, pageNumber, pageSize);
-              state = STATE_FINISHED;
-              reenableAutoReadIfNeeded();
-              enqueueOrCompletePending(resultSet);
-              stopGlobalRequestTimer();
-              cancelTimeout(globalTimeout);
-            } else {
-              LOG.trace("[{}] Received page {} ({} rows)", logPrefix, pageNumber, pageSize);
-              if (currentPage > 0) {
-                state = currentPage + 1;
-              }
-              enqueueOrCompletePending(resultSet);
-            }
-          }
-        } else {
-          // Void responses happen only when the retry decision is ignore.
-          assert result instanceof Void;
-          ResultSetT resultSet = createEmptyResultSet(executionInfo);
-          LOG.trace(
-              "[{}] Continuous paging interrupted by retry policy decision to ignore error",
-              logPrefix);
+        //ExecutionInfo executionInfo = createExecutionInfo(result, resultSet);
+        if (resultFromServer instanceof org.apache.tinkerpop.gremlin.driver.ResultSet ) {
+          List<org.apache.tinkerpop.gremlin.driver.Result> resultList = resultFromServer.all().get();
+          int pageSize = resultList.size();
+          ResultSetT resultSet =
+                  createGraphResultSet(statement,  resultList, null, columnDefinitions);
+          //LOG.trace("[{}] Received last page ({} - {} rows)", logPrefix, pageNumber, pageSize);
           state = STATE_FINISHED;
           reenableAutoReadIfNeeded();
           enqueueOrCompletePending(resultSet);
@@ -910,15 +935,15 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
           trackNodeError(node, error);
           sendRequest(statement, null, executionIndex, retryCount, false);
         } else if (error instanceof QueryValidationException
-            || error instanceof FunctionFailureException
-            || error instanceof ProtocolError
-            || state > 1) {
+                || error instanceof FunctionFailureException
+                || error instanceof ProtocolError
+                || state > 1) {
           // we only process recoverable errors for the first page,
           // errors on subsequent pages will always trigger an immediate abortion
           LOG.trace("[{}] Unrecoverable error, rethrowing", logPrefix);
           NodeMetricUpdater metricUpdater = ((DefaultNode) node).getMetricUpdater();
           metricUpdater.incrementCounter(
-              DefaultNodeMetric.OTHER_ERRORS, executionProfile.getName());
+                  DefaultNodeMetric.OTHER_ERRORS, executionProfile.getName());
           trackNodeError(node, error);
           abort(error, true);
         } else {
@@ -947,65 +972,65 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
       if (error instanceof ReadTimeoutException) {
         ReadTimeoutException readTimeout = (ReadTimeoutException) error;
         verdict =
-            retryPolicy.onReadTimeoutVerdict(
-                statement,
-                readTimeout.getConsistencyLevel(),
-                readTimeout.getBlockFor(),
-                readTimeout.getReceived(),
-                readTimeout.wasDataPresent(),
-                retryCount);
+                retryPolicy.onReadTimeoutVerdict(
+                        statement,
+                        readTimeout.getConsistencyLevel(),
+                        readTimeout.getBlockFor(),
+                        readTimeout.getReceived(),
+                        readTimeout.wasDataPresent(),
+                        retryCount);
         updateErrorMetrics(
-            metricUpdater,
-            verdict,
-            DefaultNodeMetric.READ_TIMEOUTS,
-            DefaultNodeMetric.RETRIES_ON_READ_TIMEOUT,
-            DefaultNodeMetric.IGNORES_ON_READ_TIMEOUT);
+                metricUpdater,
+                verdict,
+                DefaultNodeMetric.READ_TIMEOUTS,
+                DefaultNodeMetric.RETRIES_ON_READ_TIMEOUT,
+                DefaultNodeMetric.IGNORES_ON_READ_TIMEOUT);
       } else if (error instanceof WriteTimeoutException) {
         WriteTimeoutException writeTimeout = (WriteTimeoutException) error;
         if (Conversions.resolveIdempotence(statement, context)) {
           verdict =
-              retryPolicy.onWriteTimeoutVerdict(
-                  statement,
-                  writeTimeout.getConsistencyLevel(),
-                  writeTimeout.getWriteType(),
-                  writeTimeout.getBlockFor(),
-                  writeTimeout.getReceived(),
-                  retryCount);
+                  retryPolicy.onWriteTimeoutVerdict(
+                          statement,
+                          writeTimeout.getConsistencyLevel(),
+                          writeTimeout.getWriteType(),
+                          writeTimeout.getBlockFor(),
+                          writeTimeout.getReceived(),
+                          retryCount);
         } else {
           verdict = RetryVerdict.RETHROW;
         }
         updateErrorMetrics(
-            metricUpdater,
-            verdict,
-            DefaultNodeMetric.WRITE_TIMEOUTS,
-            DefaultNodeMetric.RETRIES_ON_WRITE_TIMEOUT,
-            DefaultNodeMetric.IGNORES_ON_WRITE_TIMEOUT);
+                metricUpdater,
+                verdict,
+                DefaultNodeMetric.WRITE_TIMEOUTS,
+                DefaultNodeMetric.RETRIES_ON_WRITE_TIMEOUT,
+                DefaultNodeMetric.IGNORES_ON_WRITE_TIMEOUT);
       } else if (error instanceof UnavailableException) {
         UnavailableException unavailable = (UnavailableException) error;
         verdict =
-            retryPolicy.onUnavailableVerdict(
-                statement,
-                unavailable.getConsistencyLevel(),
-                unavailable.getRequired(),
-                unavailable.getAlive(),
-                retryCount);
+                retryPolicy.onUnavailableVerdict(
+                        statement,
+                        unavailable.getConsistencyLevel(),
+                        unavailable.getRequired(),
+                        unavailable.getAlive(),
+                        retryCount);
         updateErrorMetrics(
-            metricUpdater,
-            verdict,
-            DefaultNodeMetric.UNAVAILABLES,
-            DefaultNodeMetric.RETRIES_ON_UNAVAILABLE,
-            DefaultNodeMetric.IGNORES_ON_UNAVAILABLE);
+                metricUpdater,
+                verdict,
+                DefaultNodeMetric.UNAVAILABLES,
+                DefaultNodeMetric.RETRIES_ON_UNAVAILABLE,
+                DefaultNodeMetric.IGNORES_ON_UNAVAILABLE);
       } else {
         verdict =
-            Conversions.resolveIdempotence(statement, context)
-                ? retryPolicy.onErrorResponseVerdict(statement, error, retryCount)
-                : RetryVerdict.RETHROW;
+                Conversions.resolveIdempotence(statement, context)
+                        ? retryPolicy.onErrorResponseVerdict(statement, error, retryCount)
+                        : RetryVerdict.RETHROW;
         updateErrorMetrics(
-            metricUpdater,
-            verdict,
-            DefaultNodeMetric.OTHER_ERRORS,
-            DefaultNodeMetric.RETRIES_ON_OTHER_ERROR,
-            DefaultNodeMetric.IGNORES_ON_OTHER_ERROR);
+                metricUpdater,
+                verdict,
+                DefaultNodeMetric.OTHER_ERRORS,
+                DefaultNodeMetric.RETRIES_ON_OTHER_ERROR,
+                DefaultNodeMetric.IGNORES_ON_OTHER_ERROR);
       }
       processRetryVerdict(verdict, error);
     }
@@ -1020,87 +1045,87 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
       assert lock.isHeldByCurrentThread();
       ByteBuffer idToReprepare = ByteBuffer.wrap(errorMessage.id);
       LOG.trace(
-          "[{}] Statement {} is not prepared on {}, re-preparing",
-          logPrefix,
-          Bytes.toHexString(idToReprepare),
-          node);
+              "[{}] Statement {} is not prepared on {}, re-preparing",
+              logPrefix,
+              Bytes.toHexString(idToReprepare),
+              node);
       RepreparePayload repreparePayload = session.getRepreparePayloads().get(idToReprepare);
       if (repreparePayload == null) {
         throw new IllegalStateException(
-            String.format(
-                "Tried to execute unprepared query %s but we don't have the data to re-prepare it",
-                Bytes.toHexString(idToReprepare)));
+                String.format(
+                        "Tried to execute unprepared query %s but we don't have the data to re-prepare it",
+                        Bytes.toHexString(idToReprepare)));
       }
       Prepare prepare = repreparePayload.toMessage();
       Duration timeout = executionProfile.getDuration(DefaultDriverOption.REQUEST_TIMEOUT);
       ThrottledAdminRequestHandler.prepare(
-              channel,
-              true,
-              prepare,
-              repreparePayload.customPayload,
-              timeout,
-              throttler,
-              sessionMetricUpdater,
-              logPrefix)
-          .start()
-          .whenComplete(
-              (repreparedId, exception) -> {
-                // If we run into an unrecoverable error, surface it to the client instead of
-                // retrying
-                Throwable fatalError = null;
-                if (exception == null) {
-                  if (!repreparedId.equals(idToReprepare)) {
-                    IllegalStateException illegalStateException =
-                        new IllegalStateException(
-                            String.format(
-                                "ID mismatch while trying to reprepare (expected %s, got %s). "
-                                    + "This prepared statement won't work anymore. "
-                                    + "This usually happens when you run a 'USE...' query after "
-                                    + "the statement was prepared.",
-                                Bytes.toHexString(idToReprepare), Bytes.toHexString(repreparedId)));
-                    trackNodeError(node, illegalStateException);
-                    fatalError = illegalStateException;
-                  } else {
-                    LOG.trace(
-                        "[{}] Re-prepare successful, retrying on the same node ({})",
-                        logPrefix,
-                        node);
-                    sendRequest(statement, node, executionIndex, retryCount, false);
-                  }
-                } else {
-                  if (exception instanceof UnexpectedResponseException) {
-                    Message prepareErrorMessage = ((UnexpectedResponseException) exception).message;
-                    if (prepareErrorMessage instanceof Error) {
-                      CoordinatorException prepareError =
-                          DseConversions.toThrowable(node, (Error) prepareErrorMessage, context);
-                      if (prepareError instanceof QueryValidationException
-                          || prepareError instanceof FunctionFailureException
-                          || prepareError instanceof ProtocolError) {
-                        LOG.trace("[{}] Unrecoverable error on re-prepare, rethrowing", logPrefix);
-                        trackNodeError(node, prepareError);
-                        fatalError = prepareError;
-                      }
-                    }
-                  } else if (exception instanceof RequestThrottlingException) {
-                    trackNodeError(node, exception);
-                    fatalError = exception;
-                  }
-                  if (fatalError == null) {
-                    LOG.trace("[{}] Re-prepare failed, trying next node", logPrefix);
-                    recordError(node, exception);
-                    trackNodeError(node, exception);
-                    sendRequest(statement, null, executionIndex, retryCount, false);
-                  }
-                }
-                if (fatalError != null) {
-                  lock.lock();
-                  try {
-                    abort(fatalError, true);
-                  } finally {
-                    lock.unlock();
-                  }
-                }
-              });
+                      channel,
+                      true,
+                      prepare,
+                      repreparePayload.customPayload,
+                      timeout,
+                      throttler,
+                      sessionMetricUpdater,
+                      logPrefix)
+              .start()
+              .whenComplete(
+                      (repreparedId, exception) -> {
+                        // If we run into an unrecoverable error, surface it to the client instead of
+                        // retrying
+                        Throwable fatalError = null;
+                        if (exception == null) {
+                          if (!repreparedId.equals(idToReprepare)) {
+                            IllegalStateException illegalStateException =
+                                    new IllegalStateException(
+                                            String.format(
+                                                    "ID mismatch while trying to reprepare (expected %s, got %s). "
+                                                            + "This prepared statement won't work anymore. "
+                                                            + "This usually happens when you run a 'USE...' query after "
+                                                            + "the statement was prepared.",
+                                                    Bytes.toHexString(idToReprepare), Bytes.toHexString(repreparedId)));
+                            trackNodeError(node, illegalStateException);
+                            fatalError = illegalStateException;
+                          } else {
+                            LOG.trace(
+                                    "[{}] Re-prepare successful, retrying on the same node ({})",
+                                    logPrefix,
+                                    node);
+                            sendRequest(statement, node, executionIndex, retryCount, false);
+                          }
+                        } else {
+                          if (exception instanceof UnexpectedResponseException) {
+                            Message prepareErrorMessage = ((UnexpectedResponseException) exception).message;
+                            if (prepareErrorMessage instanceof Error) {
+                              CoordinatorException prepareError =
+                                      DseConversions.toThrowable(node, (Error) prepareErrorMessage, context);
+                              if (prepareError instanceof QueryValidationException
+                                      || prepareError instanceof FunctionFailureException
+                                      || prepareError instanceof ProtocolError) {
+                                LOG.trace("[{}] Unrecoverable error on re-prepare, rethrowing", logPrefix);
+                                trackNodeError(node, prepareError);
+                                fatalError = prepareError;
+                              }
+                            }
+                          } else if (exception instanceof RequestThrottlingException) {
+                            trackNodeError(node, exception);
+                            fatalError = exception;
+                          }
+                          if (fatalError == null) {
+                            LOG.trace("[{}] Re-prepare failed, trying next node", logPrefix);
+                            recordError(node, exception);
+                            trackNodeError(node, exception);
+                            sendRequest(statement, null, executionIndex, retryCount, false);
+                          }
+                        }
+                        if (fatalError != null) {
+                          lock.lock();
+                          try {
+                            abort(fatalError, true);
+                          } finally {
+                            lock.unlock();
+                          }
+                        }
+                      });
     }
 
     /**
@@ -1118,20 +1143,20 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
           recordError(node, error);
           trackNodeError(node, error);
           sendRequest(
-              verdict.getRetryRequest(statement), node, executionIndex, retryCount + 1, false);
+                  verdict.getRetryRequest(statement), node, executionIndex, retryCount + 1, false);
           break;
         case RETRY_NEXT:
           recordError(node, error);
           trackNodeError(node, error);
           sendRequest(
-              verdict.getRetryRequest(statement), null, executionIndex, retryCount + 1, false);
+                  verdict.getRetryRequest(statement), null, executionIndex, retryCount + 1, false);
           break;
         case RETHROW:
           trackNodeError(node, error);
           abort(error, true);
           break;
         case IGNORE:
-          processResultResponse(Void.INSTANCE, null);
+          processResultResponse(null);
           break;
       }
     }
@@ -1156,9 +1181,9 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
         if (!chosenCallback.complete(this)) {
           if (LOG.isTraceEnabled()) {
             LOG.trace(
-                "[{}] Trying to enqueue {} but another callback was already chosen, aborting",
-                logPrefix,
-                asTraceString(pageOrError));
+                    "[{}] Trying to enqueue {} but another callback was already chosen, aborting",
+                    logPrefix,
+                    asTraceString(pageOrError));
           }
           // Discard the data, this callback will be canceled shortly since the chosen callback
           // invoked cancelScheduledTasks
@@ -1173,9 +1198,9 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
       if (pendingResult != null) {
         if (LOG.isTraceEnabled()) {
           LOG.trace(
-              "[{}] Client was waiting on empty queue, completing with {}",
-              logPrefix,
-              asTraceString(pageOrError));
+                  "[{}] Client was waiting on empty queue, completing with {}",
+                  logPrefix,
+                  asTraceString(pageOrError));
         }
         CompletableFuture<ResultSetT> tmp = pendingResult;
         // null out pendingResult before completing it because its completion
@@ -1192,12 +1217,12 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
         // disable auto-read so that the channel eventually becomes
         // non-writable on the server side (causing it to back off for a while)
         if (!protocolBackpressureAvailable
-            && queue.size() == getMaxEnqueuedPages(statement)
-            && state > 0) {
+                && queue.size() == getMaxEnqueuedPages(statement)
+                && state > 0) {
           LOG.trace(
-              "[{}] Exceeded {} queued response pages, disabling auto-read",
-              logPrefix,
-              queue.size());
+                  "[{}] Exceeded {} queued response pages, disabling auto-read",
+                  logPrefix,
+                  queue.size());
           channel.config().setAutoRead(false);
         }
       }
@@ -1225,12 +1250,12 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
         if (queue != null) {
           head = queue.poll();
           if (!protocolBackpressureAvailable
-              && head != null
-              && queue.size() == getMaxEnqueuedPages(statement) - 1) {
+                  && head != null
+                  && queue.size() == getMaxEnqueuedPages(statement) - 1) {
             LOG.trace(
-                "[{}] Back to {} queued response pages, re-enabling auto-read",
-                logPrefix,
-                queue.size());
+                    "[{}] Back to {} queued response pages, re-enabling auto-read",
+                    logPrefix,
+                    queue.size());
             channel.config().setAutoRead(true);
           }
           maybeRequestMore();
@@ -1239,27 +1264,27 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
         if (head != null) {
           if (state == STATE_FAILED && !(head instanceof Throwable)) {
             LOG.trace(
-                "[{}] Client requested next page on cancelled queue, discarding page and returning cancelled future",
-                logPrefix);
+                    "[{}] Client requested next page on cancelled queue, discarding page and returning cancelled future",
+                    logPrefix);
             return cancelledResultSetFuture();
           } else {
             if (LOG.isTraceEnabled()) {
               LOG.trace(
-                  "[{}] Client requested next page on non-empty queue, returning immediate future of {}",
-                  logPrefix,
-                  asTraceString(head));
+                      "[{}] Client requested next page on non-empty queue, returning immediate future of {}",
+                      logPrefix,
+                      asTraceString(head));
             }
             return immediateResultSetFuture(head);
           }
         } else {
           if (state == STATE_FAILED) {
             LOG.trace(
-                "[{}] Client requested next page on cancelled empty queue, returning cancelled future",
-                logPrefix);
+                    "[{}] Client requested next page on cancelled empty queue, returning cancelled future",
+                    logPrefix);
             return cancelledResultSetFuture();
           } else {
             LOG.trace(
-                "[{}] Client requested next page but queue is empty, installing future", logPrefix);
+                    "[{}] Client requested next page but queue is empty, installing future", logPrefix);
             pendingResult = new CompletableFuture<>();
             // Only schedule a timeout if we're past the first page (the first page's timeout is
             // handled in sendRequest).
@@ -1301,7 +1326,7 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
       int inFlight = requested - received;
       int numPagesFittingInQueue = freeSpace - inFlight;
       if (numPagesFittingInQueue > 0
-          && numPagesFittingInQueue >= getMaxEnqueuedPages(statement) / 2) {
+              && numPagesFittingInQueue >= getMaxEnqueuedPages(statement) / 2) {
         LOG.trace("[{}] Requesting more {} pages", logPrefix, numPagesFittingInQueue);
         numPagesRequested = requested + numPagesFittingInQueue;
         sendMorePagesRequest(numPagesFittingInQueue);
@@ -1322,32 +1347,32 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
 
       LOG.trace("[{}] Sending request for more pages", logPrefix);
       ThrottledAdminRequestHandler.query(
-              channel,
-              true,
-              Revise.requestMoreContinuousPages(streamId, nextPages),
-              statement.getCustomPayload(),
-              getReviseRequestTimeout(statement),
-              throttler,
-              session.getMetricUpdater(),
-              logPrefix,
-              "request " + nextPages + " more pages for id " + streamId)
-          .start()
-          .handle(
-              (result, error) -> {
-                if (error != null) {
-                  Loggers.warnWithException(
-                      LOG, "[{}] Error requesting more pages, aborting.", logPrefix, error);
-                  lock.lock();
-                  try {
-                    // Set fromServer to false because we want the callback to still cancel the
-                    // session if possible or else the server will wait on a timeout.
-                    abort(error, false);
-                  } finally {
-                    lock.unlock();
-                  }
-                }
-                return null;
-              });
+                      channel,
+                      true,
+                      Revise.requestMoreContinuousPages(streamId, nextPages),
+                      statement.getCustomPayload(),
+                      getReviseRequestTimeout(statement),
+                      throttler,
+                      session.getMetricUpdater(),
+                      logPrefix,
+                      "request " + nextPages + " more pages for id " + streamId)
+              .start()
+              .handle(
+                      (result, error) -> {
+                        if (error != null) {
+                          Loggers.warnWithException(
+                                  LOG, "[{}] Error requesting more pages, aborting.", logPrefix, error);
+                          lock.lock();
+                          try {
+                            // Set fromServer to false because we want the callback to still cancel the
+                            // session if possible or else the server will wait on a timeout.
+                            abort(error, false);
+                          } finally {
+                            lock.unlock();
+                          }
+                        }
+                        return null;
+                      });
     }
 
     /** Cancels the given timeout, if non null. */
@@ -1367,10 +1392,10 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
           return;
         } else {
           LOG.trace(
-              "[{}] Cancelling continuous paging session with state {} on node {}",
-              logPrefix,
-              state,
-              node);
+                  "[{}] Cancelling continuous paging session with state {} on node {}",
+                  logPrefix,
+                  state,
+                  node);
           state = STATE_FAILED;
           if (pendingResult != null) {
             pendingResult.cancel(true);
@@ -1401,30 +1426,30 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
       assert lock.isHeldByCurrentThread();
       LOG.trace("[{}] Sending cancel request", logPrefix);
       ThrottledAdminRequestHandler.query(
-              channel,
-              true,
-              Revise.cancelContinuousPaging(streamId),
-              statement.getCustomPayload(),
-              getReviseRequestTimeout(statement),
-              throttler,
-              session.getMetricUpdater(),
-              logPrefix,
-              "cancel request")
-          .start()
-          .handle(
-              (result, error) -> {
-                if (error != null) {
-                  Loggers.warnWithException(
-                      LOG,
-                      "[{}] Error sending cancel request. "
-                          + "This is not critical (the request will eventually time out server-side).",
+                      channel,
+                      true,
+                      Revise.cancelContinuousPaging(streamId),
+                      statement.getCustomPayload(),
+                      getReviseRequestTimeout(statement),
+                      throttler,
+                      session.getMetricUpdater(),
                       logPrefix,
-                      error);
-                } else {
-                  LOG.trace("[{}] Continuous paging session cancelled successfully", logPrefix);
-                }
-                return null;
-              });
+                      "cancel request")
+              .start()
+              .handle(
+                      (result, error) -> {
+                        if (error != null) {
+                          Loggers.warnWithException(
+                                  LOG,
+                                  "[{}] Error sending cancel request. "
+                                          + "This is not critical (the request will eventually time out server-side).",
+                                  logPrefix,
+                                  error);
+                        } else {
+                          LOG.trace("[{}] Continuous paging session cancelled successfully", logPrefix);
+                        }
+                        return null;
+                      });
       sentCancelRequest = true;
     }
 
@@ -1444,8 +1469,8 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
       if (nodeErrorReported.compareAndSet(false, true)) {
         long latencyNanos = System.nanoTime() - this.messageStartTimeNanos;
         context
-            .getRequestTracker()
-            .onNodeError(this.statement, error, latencyNanos, executionProfile, node, logPrefix);
+                .getRequestTracker()
+                .onNodeError(this.statement, error, latencyNanos, executionProfile, node, logPrefix);
       }
     }
 
@@ -1460,10 +1485,10 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
     private void abort(@NonNull Throwable error, boolean fromServer) {
       assert lock.isHeldByCurrentThread();
       LOG.trace(
-          "[{}] Aborting due to {} ({})",
-          logPrefix,
-          error.getClass().getSimpleName(),
-          error.getMessage());
+              "[{}] Aborting due to {} ({})",
+              logPrefix,
+              error.getClass().getSimpleName(),
+              error.getMessage());
       if (channel == null) {
         // This only happens when sending the initial request, if no host was available
         // or if the iterator returned by the LBP threw an exception.
@@ -1493,31 +1518,31 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
     private void stopNodeMessageTimer() {
       if (stopNodeMessageTimerReported.compareAndSet(false, true)) {
         ((DefaultNode) node)
-            .getMetricUpdater()
-            .updateTimer(
-                messagesMetric,
-                executionProfile.getName(),
-                System.nanoTime() - messageStartTimeNanos,
-                TimeUnit.NANOSECONDS);
+                .getMetricUpdater()
+                .updateTimer(
+                        messagesMetric,
+                        executionProfile.getName(),
+                        System.nanoTime() - messageStartTimeNanos,
+                        TimeUnit.NANOSECONDS);
       }
     }
 
     private void stopGlobalRequestTimer() {
       session
-          .getMetricUpdater()
-          .updateTimer(
-              continuousRequestsMetric,
-              null,
-              System.nanoTime() - startTimeNanos,
-              TimeUnit.NANOSECONDS);
+              .getMetricUpdater()
+              .updateTimer(
+                      continuousRequestsMetric,
+                      null,
+                      System.nanoTime() - startTimeNanos,
+                      TimeUnit.NANOSECONDS);
     }
 
     private void updateErrorMetrics(
-        @NonNull NodeMetricUpdater metricUpdater,
-        @NonNull RetryVerdict verdict,
-        @NonNull DefaultNodeMetric error,
-        @NonNull DefaultNodeMetric retriesOnError,
-        @NonNull DefaultNodeMetric ignoresOnError) {
+            @NonNull NodeMetricUpdater metricUpdater,
+            @NonNull RetryVerdict verdict,
+            @NonNull DefaultNodeMetric error,
+            @NonNull DefaultNodeMetric retriesOnError,
+            @NonNull DefaultNodeMetric ignoresOnError) {
       metricUpdater.incrementCounter(error, executionProfile.getName());
       switch (verdict.getRetryDecision()) {
         case RETRY_SAME:
@@ -1546,13 +1571,13 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
     @NonNull
     private CompletableFuture<ResultSetT> cancelledResultSetFuture() {
       return immediateResultSetFuture(
-          new CancellationException(
-              "Can't get more results because the continuous query has failed already. "
-                  + "Most likely this is because the query was cancelled"));
+              new CancellationException(
+                      "Can't get more results because the continuous query has failed already. "
+                              + "Most likely this is because the query was cancelled"));
     }
 
     private void completeResultSetFuture(
-        @NonNull CompletableFuture<ResultSetT> future, @NonNull Object pageOrError) {
+            @NonNull CompletableFuture<ResultSetT> future, @NonNull Object pageOrError) {
       long now = System.nanoTime();
       long totalLatencyNanos = now - startTimeNanos;
       long nodeLatencyNanos = now - messageStartTimeNanos;
@@ -1560,25 +1585,25 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
         if (future.complete(resultSetClass.cast(pageOrError))) {
           throttler.signalSuccess(ContinuousRequestHandlerBase.this);
           if (nodeSuccessReported.compareAndSet(false, true)) {
-            context
-                .getRequestTracker()
-                .onNodeSuccess(statement, nodeLatencyNanos, executionProfile, node, logPrefix);
+//            context
+//                    .getRequestTracker()
+//                    .onNodeSuccess(statement, nodeLatencyNanos, executionProfile, node, logPrefix);
           }
           context
-              .getRequestTracker()
-              .onSuccess(statement, totalLatencyNanos, executionProfile, node, logPrefix);
+                  .getRequestTracker()
+                  .onSuccess(statement, totalLatencyNanos, executionProfile, node, logPrefix);
         }
       } else {
         Throwable error = (Throwable) pageOrError;
         if (future.completeExceptionally(error)) {
           context
-              .getRequestTracker()
-              .onError(statement, error, totalLatencyNanos, executionProfile, node, logPrefix);
+                  .getRequestTracker()
+                  .onError(statement, error, totalLatencyNanos, executionProfile, node, logPrefix);
           if (error instanceof DriverTimeoutException) {
             throttler.signalTimeout(ContinuousRequestHandlerBase.this);
             session
-                .getMetricUpdater()
-                .incrementCounter(clientTimeoutsMetric, executionProfile.getName());
+                    .getMetricUpdater()
+                    .incrementCounter(clientTimeoutsMetric, executionProfile.getName());
           } else if (!(error instanceof RequestThrottlingException)) {
             throttler.signalError(ContinuousRequestHandlerBase.this, error);
           }
@@ -1589,19 +1614,19 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
     @NonNull
     private ExecutionInfo createExecutionInfo(@NonNull Result result, @Nullable Frame response) {
       ByteBuffer pagingState =
-          result instanceof Rows ? ((Rows) result).getMetadata().pagingState : null;
+              result instanceof Rows ? ((Rows) result).getMetadata().pagingState : null;
       return new DefaultExecutionInfo(
-          statement,
-          node,
-          startedSpeculativeExecutionsCount.get(),
-          executionIndex,
-          errors,
-          pagingState,
-          response,
-          true,
-          session,
-          context,
-          executionProfile);
+              statement,
+              node,
+              startedSpeculativeExecutionsCount.get(),
+              executionIndex,
+              errors,
+              pagingState,
+              response,
+              true,
+              session,
+              context,
+              executionProfile);
     }
 
     private void logTimeoutSchedulingError(IllegalStateException timeoutError) {
@@ -1609,15 +1634,15 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
       // to schedule more executions anyway, so swallow the error.
       if (!"cannot be started once stopped".equals(timeoutError.getMessage())) {
         Loggers.warnWithException(
-            LOG, "[{}] Error while scheduling timeout", logPrefix, timeoutError);
+                LOG, "[{}] Error while scheduling timeout", logPrefix, timeoutError);
       }
     }
 
     @NonNull
     private String asTraceString(@NonNull Object pageOrError) {
       return resultSetClass.isInstance(pageOrError)
-          ? "page " + pageNumber(resultSetClass.cast(pageOrError))
-          : ((Exception) pageOrError).getClass().getSimpleName();
+              ? "page " + pageNumber(resultSetClass.cast(pageOrError))
+              : ((Exception) pageOrError).getClass().getSimpleName();
     }
 
     private int getState() {
@@ -1638,4 +1663,6 @@ public abstract class ContinuousRequestHandlerBase<StatementT extends Request, R
       }
     }
   }
+
+  public abstract ResultSetT createGraphResultSet(StatementT statement, List<org.apache.tinkerpop.gremlin.driver.Result> resultList, @NonNull ExecutionInfo executionInfo, ColumnDefinitions columnDefinitions);
 }

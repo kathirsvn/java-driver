@@ -59,6 +59,7 @@ import java.util.WeakHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Consumer;
+
 import net.jcip.annotations.ThreadSafe;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -300,36 +301,43 @@ public class ControlConnection implements EventCallback, AsyncAutoCloseable {
 
         Queue<Node> nodes = context.getLoadBalancingPolicyWrapper().newQueryPlan();
 
-        connect(
-            nodes,
-            null,
-            () -> initFuture.complete(null),
-            error -> {
-              if (isAuthFailure(error)) {
-                LOG.warn(
-                    "[{}] Authentication errors encountered on all contact points. Please check your authentication configuration.",
-                    logPrefix);
-              }
-              if (reconnectOnFailure && !closeWasCalled) {
-                reconnection.start(
-                    reconnectionPolicy.newControlConnectionSchedule(
-                        useInitialReconnectionSchedule));
-              } else {
-                // Special case for the initial connection: reword to a more user-friendly error
-                // message
-                if (error instanceof AllNodesFailedException) {
-                  error =
-                      ((AllNodesFailedException) error)
-                          .reword(
-                              "Could not reach any contact point, "
-                                  + "make sure you've provided valid addresses");
-                }
-                initFuture.completeExceptionally(error);
-              }
-            });
+        connectToNodes(reconnectOnFailure, useInitialReconnectionSchedule, nodes);
+
+        Queue<Node> graphNodes = context.getLoadBalancingPolicyWrapper().newGraphQueryPlan();
+        connectToNodes(reconnectOnFailure, useInitialReconnectionSchedule, graphNodes);
       } catch (Throwable t) {
         initFuture.completeExceptionally(t);
       }
+    }
+
+    private void connectToNodes(boolean reconnectOnFailure, boolean useInitialReconnectionSchedule, Queue<Node> nodes) {
+      connect(
+              nodes,
+              null,
+              () -> initFuture.complete(null),
+              error -> {
+                if (isAuthFailure(error)) {
+                  LOG.warn(
+                          "[{}] Authentication errors encountered on all contact points. Please check your authentication configuration.",
+                          logPrefix);
+                }
+                if (reconnectOnFailure && !closeWasCalled) {
+                  reconnection.start(
+                          reconnectionPolicy.newControlConnectionSchedule(
+                                  useInitialReconnectionSchedule));
+                } else {
+                  // Special case for the initial connection: reword to a more user-friendly error
+                  // message
+                  if (error instanceof AllNodesFailedException) {
+                    error =
+                            ((AllNodesFailedException) error)
+                                    .reword(
+                                            "Could not reach any contact point, "
+                                                    + "make sure you've provided valid addresses");
+                  }
+                  initFuture.completeExceptionally(error);
+                }
+              });
     }
 
     private CompletionStage<Boolean> reconnect() {

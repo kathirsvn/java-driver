@@ -88,6 +88,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import net.jcip.annotations.ThreadSafe;
+import org.apache.tinkerpop.gremlin.driver.ResultSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -671,6 +672,11 @@ public class CqlRequestHandler implements Throttled {
         trackNodeError(node, t, nodeResponseTimeNanos);
         setFinalError(statement, t, node, execution);
       }
+    }
+
+    @Override
+    public void onResponse(@NonNull ResultSet response) {
+
     }
 
     private void processErrorResponse(Error errorMessage) {

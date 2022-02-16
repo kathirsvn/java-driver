@@ -38,6 +38,8 @@ public class RemoveNodeRefreshTest {
 
   private DefaultNode node1;
   private DefaultNode node2;
+  private DefaultNode graphNode1;
+  private DefaultNode graphNode2;
 
   @Before
   public void setup() {
@@ -45,6 +47,9 @@ public class RemoveNodeRefreshTest {
     when(context.getChannelFactory()).thenReturn(channelFactory);
     node1 = TestNodeFactory.newNode(1, context);
     node2 = TestNodeFactory.newNode(2, context);
+
+    graphNode1 = TestNodeFactory.newGraphNode(3, context);
+    graphNode2 = TestNodeFactory.newGraphNode(4, context);
   }
 
   @Test
@@ -53,6 +58,7 @@ public class RemoveNodeRefreshTest {
     DefaultMetadata oldMetadata =
         new DefaultMetadata(
             ImmutableMap.of(node1.getHostId(), node1, node2.getHostId(), node2),
+                ImmutableMap.of(graphNode1.getHostId(), graphNode1, graphNode2.getHostId(), graphNode2),
             Collections.emptyMap(),
             null,
             null);
@@ -71,7 +77,9 @@ public class RemoveNodeRefreshTest {
     // Given
     DefaultMetadata oldMetadata =
         new DefaultMetadata(
-            ImmutableMap.of(node1.getHostId(), node1), Collections.emptyMap(), null, null);
+            ImmutableMap.of(node1.getHostId(), node1),
+                ImmutableMap.of(graphNode1.getHostId(), graphNode1),
+                Collections.emptyMap(), null, null);
     RemoveNodeRefresh refresh = new RemoveNodeRefresh(node2.getBroadcastRpcAddress().get());
 
     // When

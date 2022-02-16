@@ -70,6 +70,7 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import net.jcip.annotations.ThreadSafe;
+import org.apache.tinkerpop.gremlin.driver.ResultSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -388,6 +389,11 @@ public class CqlPrepareHandler implements Throttled {
       } catch (Throwable t) {
         setFinalError(t);
       }
+    }
+
+    @Override
+    public void onResponse(@NonNull ResultSet response) {
+
     }
 
     private void processErrorResponse(Error errorMessage) {

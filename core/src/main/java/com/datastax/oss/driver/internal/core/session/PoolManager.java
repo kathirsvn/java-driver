@@ -76,6 +76,13 @@ public class PoolManager implements AsyncAutoCloseable {
           // the map will only be updated from adminExecutor
           1);
 
+  private final ConcurrentMap<Node, ChannelPool> graphPools =
+          new ConcurrentHashMap<>(
+                  16,
+                  0.75f,
+                  // the map will only be updated from adminExecutor
+                  1);
+
   // The raw data to reprepare requests on the fly, if we hit a node that doesn't have them in
   // its cache.
   // This is raw protocol-level data, as opposed to the actual instances returned to the client
@@ -137,6 +144,8 @@ public class PoolManager implements AsyncAutoCloseable {
   public Map<Node, ChannelPool> getPools() {
     return pools;
   }
+
+  public Map<Node, ChannelPool> getGraphPools() { return graphPools;}
 
   public ConcurrentMap<ByteBuffer, RepreparePayload> getRepreparePayloads() {
     return repreparePayloads;
@@ -231,10 +240,25 @@ public class PoolManager implements AsyncAutoCloseable {
           poolStages.add(channelPoolFactory.init(node, keyspace, distance, context, logPrefix));
         }
       }
-      CompletableFutures.whenAllDone(poolStages, () -> this.onPoolsInit(poolStages), adminExecutor);
+      CompletableFutures.whenAllDone(poolStages, () -> this.onPoolsInit(poolStages, false), adminExecutor);
+
+      Collection<Node> graphNodes = context.getMetadataManager().getMetadata().getGraphNodes().values();
+      List<CompletionStage<ChannelPool>> graphPoolStages = new ArrayList<>(graphNodes.size());
+      for (Node graphNode : graphNodes) {
+        NodeDistance distance = graphNode.getDistance();
+        /*if (distance == NodeDistance.IGNORED) {
+          LOG.debug("[{}] Skipping {} because it is IGNORED", logPrefix, graphNode);
+        } else if (graphNode.getState() == NodeState.FORCED_DOWN) {
+          LOG.debug("[{}] Skipping {} because it is FORCED_DOWN", logPrefix, graphNode);
+        } else {
+          LOG.debug("[{}] Creating a pool for {}", logPrefix, graphNode);*/
+          graphPoolStages.add(channelPoolFactory.init(graphNode, keyspace, distance, context, logPrefix));
+        //}
+      }
+      CompletableFutures.whenAllDone(graphPoolStages, () -> this.onPoolsInit(graphPoolStages, true), adminExecutor);
     }
 
-    private void onPoolsInit(List<CompletionStage<ChannelPool>> poolStages) {
+    private void onPoolsInit(List<CompletionStage<ChannelPool>> poolStages, boolean isGraphNode) {
       assert adminExecutor.inEventLoop();
       LOG.debug("[{}] All pools have finished initializing", logPrefix);
       // We will only propagate an invalid keyspace error if all pools get it
@@ -247,7 +271,11 @@ public class PoolManager implements AsyncAutoCloseable {
           LOG.debug("[{}] Pool to {} reports an invalid keyspace", logPrefix, pool.getNode());
         }
         allInvalidKeyspaces &= invalidKeyspace;
-        pools.put(pool.getNode(), pool);
+        if(isGraphNode){
+          graphPools.put(pool.getNode(), pool);
+        } else{
+          pools.put(pool.getNode(), pool);
+        }
       }
       if (allInvalidKeyspaces) {
         initFuture.completeExceptionally(

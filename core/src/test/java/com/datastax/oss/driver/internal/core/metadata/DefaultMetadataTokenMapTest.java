@@ -55,6 +55,8 @@ public class DefaultMetadataTokenMapTest {
 
   @Mock private InternalDriverContext context;
   @Mock private ChannelFactory channelFactory;
+  private static final Node GRAPH_NODE1 = mockNode(TOKEN1);
+  private static final Node GRAPH_NODE2 = mockNode(TOKEN2);
 
   @Before
   public void setup() {
@@ -68,7 +70,7 @@ public class DefaultMetadataTokenMapTest {
   public void should_not_build_token_map_when_initializing_with_contact_points() {
     DefaultMetadata contactPointsMetadata =
         new DefaultMetadata(
-            ImmutableMap.of(NODE1.getHostId(), NODE1), Collections.emptyMap(), null, null);
+            ImmutableMap.of(NODE1.getHostId(), NODE1), Collections.emptyMap(), null, null, null);
     assertThat(contactPointsMetadata.getTokenMap()).isNotPresent();
   }
 
@@ -76,10 +78,12 @@ public class DefaultMetadataTokenMapTest {
   public void should_build_minimal_token_map_on_first_refresh() {
     DefaultMetadata contactPointsMetadata =
         new DefaultMetadata(
-            ImmutableMap.of(NODE1.getHostId(), NODE1), Collections.emptyMap(), null, null);
+            ImmutableMap.of(NODE1.getHostId(), NODE1),
+                ImmutableMap.of(GRAPH_NODE1.getHostId(), GRAPH_NODE1), Collections.emptyMap(), null, null);
     DefaultMetadata firstRefreshMetadata =
         contactPointsMetadata.withNodes(
             ImmutableMap.of(NODE1.getHostId(), NODE1),
+                ImmutableMap.of(GRAPH_NODE1.getHostId(), GRAPH_NODE1),
             true,
             true,
             new Murmur3TokenFactory(),
@@ -91,10 +95,11 @@ public class DefaultMetadataTokenMapTest {
   public void should_not_build_token_map_when_disabled() {
     DefaultMetadata contactPointsMetadata =
         new DefaultMetadata(
-            ImmutableMap.of(NODE1.getHostId(), NODE1), Collections.emptyMap(), null, null);
+            ImmutableMap.of(NODE1.getHostId(), NODE1), ImmutableMap.of(GRAPH_NODE1.getHostId(), GRAPH_NODE1), Collections.emptyMap(), null, null);
     DefaultMetadata firstRefreshMetadata =
         contactPointsMetadata.withNodes(
             ImmutableMap.of(NODE1.getHostId(), NODE1),
+                ImmutableMap.of(GRAPH_NODE1.getHostId(), GRAPH_NODE1),
             false,
             true,
             new Murmur3TokenFactory(),
@@ -106,10 +111,10 @@ public class DefaultMetadataTokenMapTest {
   public void should_stay_empty_on_first_refresh_if_partitioner_missing() {
     DefaultMetadata contactPointsMetadata =
         new DefaultMetadata(
-            ImmutableMap.of(NODE1.getHostId(), NODE1), Collections.emptyMap(), null, null);
+            ImmutableMap.of(NODE1.getHostId(), NODE1), ImmutableMap.of(GRAPH_NODE1.getHostId(), GRAPH_NODE1), Collections.emptyMap(), null, null);
     DefaultMetadata firstRefreshMetadata =
         contactPointsMetadata.withNodes(
-            ImmutableMap.of(NODE1.getHostId(), NODE1), true, true, null, context);
+            ImmutableMap.of(NODE1.getHostId(), NODE1),  ImmutableMap.of(GRAPH_NODE1.getHostId(), GRAPH_NODE1), true, true, null, context);
     assertThat(firstRefreshMetadata.getTokenMap()).isNotPresent();
   }
 
@@ -117,17 +122,19 @@ public class DefaultMetadataTokenMapTest {
   public void should_update_minimal_token_map_if_new_node_and_still_no_schema() {
     DefaultMetadata contactPointsMetadata =
         new DefaultMetadata(
-            ImmutableMap.of(NODE1.getHostId(), NODE1), Collections.emptyMap(), null, null);
+            ImmutableMap.of(NODE1.getHostId(), NODE1), ImmutableMap.of(GRAPH_NODE1.getHostId(), GRAPH_NODE1),  Collections.emptyMap(), null, null);
     DefaultMetadata firstRefreshMetadata =
         contactPointsMetadata.withNodes(
             ImmutableMap.of(NODE1.getHostId(), NODE1),
-            true,
+                ImmutableMap.of(GRAPH_NODE1.getHostId(), GRAPH_NODE1),
+                true,
             true,
             new Murmur3TokenFactory(),
             context);
     DefaultMetadata secondRefreshMetadata =
         firstRefreshMetadata.withNodes(
             ImmutableMap.of(NODE1.getHostId(), NODE1, NODE2.getHostId(), NODE2),
+                ImmutableMap.of(GRAPH_NODE1.getHostId(), GRAPH_NODE1, GRAPH_NODE2.getHostId(), GRAPH_NODE2),
             true,
             false,
             null,
@@ -139,10 +146,12 @@ public class DefaultMetadataTokenMapTest {
   public void should_update_token_map_when_schema_changes() {
     DefaultMetadata contactPointsMetadata =
         new DefaultMetadata(
-            ImmutableMap.of(NODE1.getHostId(), NODE1), Collections.emptyMap(), null, null);
+            ImmutableMap.of(NODE1.getHostId(), NODE1),
+                ImmutableMap.of(GRAPH_NODE1.getHostId(), GRAPH_NODE1),Collections.emptyMap(), null, null);
     DefaultMetadata firstRefreshMetadata =
         contactPointsMetadata.withNodes(
             ImmutableMap.of(NODE1.getHostId(), NODE1),
+                ImmutableMap.of(GRAPH_NODE1.getHostId(), GRAPH_NODE1),
             true,
             true,
             new Murmur3TokenFactory(),

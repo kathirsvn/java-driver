@@ -159,8 +159,37 @@ public class LoadBalancingPolicyWrapper implements AutoCloseable {
   }
 
   @NonNull
+  public Queue<Node> newGraphQueryPlan(
+          @Nullable Request request, @NonNull String executionProfileName, @Nullable Session session) {
+    switch (stateRef.get()) {
+      case BEFORE_INIT:
+      case DURING_INIT:
+        // The contact points are not stored in the metadata yet:
+        List<Node> nodes = new ArrayList<>(context.getMetadataManager().getGraphContactPoints());
+        Collections.shuffle(nodes);
+        return new ConcurrentLinkedQueue<>(nodes);
+      case RUNNING:
+//        LoadBalancingPolicy policy = policiesPerProfile.get(executionProfileName);
+//        if (policy == null) {
+//          policy = policiesPerProfile.get(DriverExecutionProfile.DEFAULT_NAME);
+//        }
+//        return policy.newQueryPlan(request, session);
+        nodes = new ArrayList<>(context.getMetadataManager().getGraphContactPoints());
+        Collections.shuffle(nodes);
+        return new ConcurrentLinkedQueue<>(nodes);
+      default:
+        return new ConcurrentLinkedQueue<>();
+    }
+  }
+
+  @NonNull
   public Queue<Node> newQueryPlan() {
     return newQueryPlan(null, DriverExecutionProfile.DEFAULT_NAME, null);
+  }
+
+  @NonNull
+  public Queue<Node> newGraphQueryPlan() {
+    return newGraphQueryPlan(null, DriverExecutionProfile.DEFAULT_NAME, null);
   }
 
   // when it comes in from the outside

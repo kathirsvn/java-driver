@@ -58,6 +58,20 @@ public class RemoveNodeRefresh extends NodesRefresh {
       }
     }
 
+    Map<UUID, Node> oldGraphNodes = oldMetadata.getNodes();
+
+    ImmutableMap.Builder<UUID, Node> newGraphNodesBuilder = ImmutableMap.builder();
+    Node removedGraphNode = null;
+    for (Node graphNode : oldGraphNodes.values()) {
+      if (graphNode.getBroadcastRpcAddress().isPresent()
+              && graphNode.getBroadcastRpcAddress().get().equals(broadcastRpcAddressToRemove)) {
+        removedGraphNode = graphNode;
+      } else {
+        assert graphNode.getHostId() != null; // nodes in metadata.getNodes() always have their id set
+        newNodesBuilder.put(graphNode.getHostId(), graphNode);
+      }
+    }
+
     if (removedNode == null) {
       // This should never happen because we already check the event in NodeStateManager, but handle
       // just in case.
@@ -66,7 +80,7 @@ public class RemoveNodeRefresh extends NodesRefresh {
     } else {
       LOG.debug("[{}] Removing node {}", logPrefix, removedNode);
       return new Result(
-          oldMetadata.withNodes(newNodesBuilder.build(), tokenMapEnabled, false, null, context),
+          oldMetadata.withNodes(newNodesBuilder.build(), newGraphNodesBuilder.build(), tokenMapEnabled, false, null, context),
           ImmutableList.of(NodeStateEvent.removed((DefaultNode) removedNode)));
     }
   }

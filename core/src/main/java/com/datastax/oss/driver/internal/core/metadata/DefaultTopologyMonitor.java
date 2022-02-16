@@ -158,7 +158,7 @@ public class DefaultTopologyMonitor implements TopologyMonitor {
   }
 
   @Override
-  public CompletionStage<Iterable<NodeInfo>> refreshNodeList() {
+  public CompletionStage<Nodes> refreshNodeList() {
     if (closeFuture.isDone()) {
       return CompletableFutures.failedFuture(new IllegalStateException("closed"));
     }
@@ -215,7 +215,16 @@ public class DefaultTopologyMonitor implements TopologyMonitor {
               }
             }
           }
-          return nodeInfos;
+          List<NodeInfo> graphNodeInfos = new ArrayList<>();
+          //TODO-GRAPH get from peers table or equivalent
+          graphNodeInfos.add(DefaultNodeInfo.builder().
+                  withHostId(UUID.randomUUID())
+                  .withListenAddress(MetadataManager.DEFAULT_GRAPH_INET_SOCKET_ADDRESS)
+                  .withEndPoint(new DefaultEndPoint(MetadataManager.DEFAULT_GRAPH_INET_SOCKET_ADDRESS))
+                  .withBroadcastAddress(MetadataManager.DEFAULT_GRAPH_INET_SOCKET_ADDRESS)
+                  .withBroadcastRpcAddress(MetadataManager.DEFAULT_GRAPH_INET_SOCKET_ADDRESS)
+                  .build());
+          return new Nodes(nodeInfos, graphNodeInfos);
         });
   }
 

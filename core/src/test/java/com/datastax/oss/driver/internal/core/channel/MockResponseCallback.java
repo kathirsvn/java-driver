@@ -16,6 +16,9 @@
 package com.datastax.oss.driver.internal.core.channel;
 
 import com.datastax.oss.protocol.internal.Frame;
+import edu.umd.cs.findbugs.annotations.NonNull;
+import org.apache.tinkerpop.gremlin.driver.ResultSet;
+
 import java.util.ArrayDeque;
 import java.util.Queue;
 import java.util.function.Predicate;
@@ -37,6 +40,11 @@ class MockResponseCallback implements ResponseCallback {
   @Override
   public void onResponse(Frame responseFrame) {
     responses.offer(responseFrame);
+  }
+
+  @Override
+  public void onResponse(@NonNull ResultSet response) {
+
   }
 
   @Override

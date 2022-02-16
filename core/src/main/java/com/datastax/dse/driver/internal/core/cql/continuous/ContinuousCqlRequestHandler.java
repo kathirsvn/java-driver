@@ -41,6 +41,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import net.jcip.annotations.ThreadSafe;
+import org.apache.tinkerpop.gremlin.driver.Result;
 
 /**
  * Handles a request that supports multiple response messages (a.k.a. continuous paging request).
@@ -160,6 +161,11 @@ public class ContinuousCqlRequestHandler
         !metadata.isLastContinuousPage,
         executionInfo,
         this);
+  }
+
+  @Override
+  public ContinuousAsyncResultSet createGraphResultSet(Statement<?> statement, List<Result> resultList, @NonNull ExecutionInfo executionInfo, ColumnDefinitions columnDefinitions) {
+    return null;
   }
 
   @Override

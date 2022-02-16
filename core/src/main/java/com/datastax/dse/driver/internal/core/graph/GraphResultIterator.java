@@ -52,8 +52,9 @@ class GraphResultIterator extends CountingIterator<GraphNode> {
     if (container == null) {
       return endOfData();
     }
+    return container;
 
-    if (graphProtocol.isGraphBinary()) {
+    /*if (graphProtocol.isGraphBinary()) {
       // results are contained in a Traverser object and not a Map if the protocol
       // is GraphBinary
       Preconditions.checkState(
@@ -72,6 +73,6 @@ class GraphResultIterator extends CountingIterator<GraphNode> {
 
       lastGraphNode = container.getByKey("result");
       return lastGraphNode;
-    }
+    }*/
   }
 }

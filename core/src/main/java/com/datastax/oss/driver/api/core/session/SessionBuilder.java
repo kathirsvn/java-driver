@@ -88,6 +88,7 @@ public abstract class SessionBuilder<SelfT extends SessionBuilder, SessionT> {
 
   protected DriverConfigLoader configLoader;
   protected Set<EndPoint> programmaticContactPoints = new HashSet<>();
+  protected Set<EndPoint> programmaticGraphContactPoints = new HashSet<>();
   protected CqlIdentifier keyspace;
   protected Callable<InputStream> cloudConfigInputStream;
 
@@ -176,6 +177,12 @@ public abstract class SessionBuilder<SelfT extends SessionBuilder, SessionT> {
   @NonNull
   public SelfT addContactPoint(@NonNull InetSocketAddress contactPoint) {
     this.programmaticContactPoints.add(new DefaultEndPoint(contactPoint));
+    return self;
+  }
+
+  @NonNull
+  public SelfT addGraphContactPoint(@NonNull InetSocketAddress contactPoint) {
+    this.programmaticGraphContactPoints.add(new DefaultEndPoint(contactPoint));
     return self;
   }
 
@@ -899,10 +906,10 @@ public abstract class SessionBuilder<SelfT extends SessionBuilder, SessionT> {
         keyspace =
             CqlIdentifier.fromCql(defaultConfig.getString(DefaultDriverOption.SESSION_KEYSPACE));
       }
-
+      Set<EndPoint> graphContactPoints = programmaticGraphContactPoints;
       return DefaultSession.init(
           (InternalDriverContext) buildContext(configLoader, programmaticArguments),
-          contactPoints,
+          contactPoints, graphContactPoints,
           keyspace);
 
     } catch (Throwable t) {

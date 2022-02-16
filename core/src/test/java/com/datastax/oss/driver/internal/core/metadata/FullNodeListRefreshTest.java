@@ -45,6 +45,11 @@ public class FullNodeListRefreshTest {
   private EndPoint endPoint3;
   private UUID hostId3;
 
+  private DefaultNode graphNode1;
+  private DefaultNode graphNode2;
+  private EndPoint graphEndPoint3;
+  private UUID graphHostId3;
+
   @Before
   public void setup() {
     when(context.getMetricsFactory()).thenReturn(metricsFactory);
@@ -55,6 +60,12 @@ public class FullNodeListRefreshTest {
 
     endPoint3 = TestNodeFactory.newEndPoint(3);
     hostId3 = UUID.randomUUID();
+
+    graphNode1 = TestNodeFactory.newGraphNode(4, context);
+    graphNode2 = TestNodeFactory.newGraphNode(5, context);
+
+    graphEndPoint3 = TestNodeFactory.newGraphEndPoint(6);
+    graphHostId3 = UUID.randomUUID();
   }
 
   @Test
@@ -63,6 +74,7 @@ public class FullNodeListRefreshTest {
     DefaultMetadata oldMetadata =
         new DefaultMetadata(
             ImmutableMap.of(node1.getHostId(), node1, node2.getHostId(), node2),
+                ImmutableMap.of(graphNode1.getHostId(), graphNode1, graphNode2.getHostId(), graphNode2),
             Collections.emptyMap(),
             null,
             null);
@@ -73,7 +85,14 @@ public class FullNodeListRefreshTest {
                 .withHostId(node2.getHostId())
                 .build(),
             DefaultNodeInfo.builder().withEndPoint(endPoint3).withHostId(hostId3).build());
-    FullNodeListRefresh refresh = new FullNodeListRefresh(newInfos);
+    Iterable<NodeInfo> graphNewInfos =
+            ImmutableList.of(
+                    DefaultNodeInfo.builder()
+                            .withEndPoint(graphNode2.getEndPoint())
+                            .withHostId(graphNode2.getHostId())
+                            .build(),
+                    DefaultNodeInfo.builder().withEndPoint(graphEndPoint3).withHostId(graphHostId3).build());
+    FullNodeListRefresh refresh = new FullNodeListRefresh(newInfos, graphNewInfos);
 
     // When
     MetadataRefresh.Result result = refresh.compute(oldMetadata, false, context);
@@ -91,6 +110,7 @@ public class FullNodeListRefreshTest {
     DefaultMetadata oldMetadata =
         new DefaultMetadata(
             ImmutableMap.of(node1.getHostId(), node1, node2.getHostId(), node2),
+                ImmutableMap.of(graphNode1.getHostId(), graphNode1, graphNode2.getHostId(), graphNode2),
             Collections.emptyMap(),
             null,
             null);
@@ -113,7 +133,23 @@ public class FullNodeListRefreshTest {
                 .withHostId(node2.getHostId())
                 .withSchemaVersion(schemaVersion2)
                 .build());
-    FullNodeListRefresh refresh = new FullNodeListRefresh(newInfos);
+    Iterable<NodeInfo> graphNewInfos =
+            ImmutableList.of(
+                    DefaultNodeInfo.builder()
+                            .withEndPoint(graphNode1.getEndPoint())
+                            .withDatacenter("dc1")
+                            .withRack("rack1")
+                            .withHostId(graphNode1.getHostId())
+                            .withSchemaVersion(schemaVersion1)
+                            .build(),
+                    DefaultNodeInfo.builder()
+                            .withEndPoint(graphNode2.getEndPoint())
+                            .withDatacenter("dc1")
+                            .withRack("rack2")
+                            .withHostId(graphNode2.getHostId())
+                            .withSchemaVersion(schemaVersion2)
+                            .build());
+    FullNodeListRefresh refresh = new FullNodeListRefresh(newInfos, graphNewInfos);
 
     // When
     MetadataRefresh.Result result = refresh.compute(oldMetadata, false, context);
@@ -136,7 +172,8 @@ public class FullNodeListRefreshTest {
     DefaultMetadata oldMetadata =
         new DefaultMetadata(
             ImmutableMap.of(node1.getHostId(), node1, node2.getHostId(), node2),
-            Collections.emptyMap(),
+                ImmutableMap.of(graphNode1.getHostId(), graphNode1, graphNode2.getHostId(), graphNode2),
+                Collections.emptyMap(),
             null,
             null);
 
@@ -161,7 +198,28 @@ public class FullNodeListRefreshTest {
                 .withRack("rack3")
                 .withHostId(node2.getHostId())
                 .build());
-    FullNodeListRefresh refresh = new FullNodeListRefresh(newInfos);
+    Iterable<NodeInfo> graphNewInfos =
+            ImmutableList.of(
+                    DefaultNodeInfo.builder()
+                            .withEndPoint(graphNode1.getEndPoint())
+                            .withDatacenter("dc1")
+                            .withRack("rack1")
+                            .withHostId(graphNode1.getHostId())
+                            .build(),
+                    DefaultNodeInfo.builder()
+                            .withEndPoint(graphNode2.getEndPoint())
+                            .withDatacenter("dc1")
+                            .withRack("rack2")
+                            .withHostId(graphNode2.getHostId())
+                            .build(),
+                    // Duplicate host id for node 2, should be ignored:
+                    DefaultNodeInfo.builder()
+                            .withEndPoint(graphNode2.getEndPoint())
+                            .withDatacenter("dc1")
+                            .withRack("rack3")
+                            .withHostId(graphNode2.getHostId())
+                            .build());
+    FullNodeListRefresh refresh = new FullNodeListRefresh(newInfos, graphNewInfos);
 
     // When
     MetadataRefresh.Result result = refresh.compute(oldMetadata, false, context);

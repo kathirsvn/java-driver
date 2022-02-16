@@ -156,4 +156,7 @@ public interface NodeInfo {
    */
   @Nullable
   UUID getSchemaVersion();
+
+  boolean isGraphNode();
+
 }

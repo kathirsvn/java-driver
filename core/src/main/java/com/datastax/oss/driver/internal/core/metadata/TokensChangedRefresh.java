@@ -25,6 +25,6 @@ class TokensChangedRefresh implements MetadataRefresh {
   public Result compute(
       DefaultMetadata oldMetadata, boolean tokenMapEnabled, InternalDriverContext context) {
     return new Result(
-        oldMetadata.withNodes(oldMetadata.getNodes(), tokenMapEnabled, true, null, context));
+        oldMetadata.withNodes(oldMetadata.getNodes(), oldMetadata.getGraphNodes(), tokenMapEnabled, true, null, context));
   }
 }

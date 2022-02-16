@@ -55,6 +55,9 @@ public class MetadataManager implements AsyncAutoCloseable {
 
   static final EndPoint DEFAULT_CONTACT_POINT =
       new DefaultEndPoint(new InetSocketAddress("127.0.0.1", 9042));
+  static InetSocketAddress DEFAULT_GRAPH_INET_SOCKET_ADDRESS = new InetSocketAddress("192.168.1.12", 28182);
+  static final EndPoint DEFAULT_GRAPH_CONTACT_POINT =
+          new DefaultEndPoint(DEFAULT_GRAPH_INET_SOCKET_ADDRESS);
 
   private final InternalDriverContext context;
   private final String logPrefix;
@@ -70,6 +73,7 @@ public class MetadataManager implements AsyncAutoCloseable {
   private volatile Boolean schemaEnabledProgrammatically;
   private volatile boolean tokenMapEnabled;
   private volatile Set<DefaultNode> contactPoints;
+  private volatile Set<DefaultNode> graphContactPoints;
   private volatile boolean wasImplicitContactPoint;
 
   public MetadataManager(InternalDriverContext context) {
@@ -136,16 +140,35 @@ public class MetadataManager implements AsyncAutoCloseable {
     ImmutableSet.Builder<DefaultNode> contactPointsBuilder = ImmutableSet.builder();
     if (providedContactPoints == null || providedContactPoints.isEmpty()) {
       LOG.info(
-          "[{}] No contact points provided, defaulting to {}", logPrefix, DEFAULT_CONTACT_POINT);
+              "[{}] No contact points provided, defaulting to {}", logPrefix, DEFAULT_CONTACT_POINT);
       this.wasImplicitContactPoint = true;
-      contactPointsBuilder.add(new DefaultNode(DEFAULT_CONTACT_POINT, context));
+      contactPointsBuilder.add(new DefaultNode(DEFAULT_CONTACT_POINT, context, false));
     } else {
       for (EndPoint endPoint : providedContactPoints) {
-        contactPointsBuilder.add(new DefaultNode(endPoint, context));
+        contactPointsBuilder.add(new DefaultNode(endPoint, context, false));
       }
     }
     this.contactPoints = contactPointsBuilder.build();
     LOG.debug("[{}] Adding initial contact points {}", logPrefix, contactPoints);
+  }
+
+  public void addGraphContactPoints(Set<EndPoint> providedGraphContactPoints) {
+    // Convert the EndPoints to Nodes, but we can't put them into the Metadata yet, because we
+    // don't know their host_id. So store them in a volatile field instead, they will get copied
+    // during the first node refresh.
+    ImmutableSet.Builder<DefaultNode> graphContactPointsBuilder = ImmutableSet.builder();
+    if (providedGraphContactPoints == null || providedGraphContactPoints.isEmpty()) {
+      LOG.info(
+              "[{}] No contact points provided, defaulting to {}", logPrefix, DEFAULT_GRAPH_CONTACT_POINT);
+      this.wasImplicitContactPoint = true;
+      graphContactPointsBuilder.add(new DefaultNode(DEFAULT_GRAPH_CONTACT_POINT, context, true));
+    } else {
+      for (EndPoint endPoint : providedGraphContactPoints) {
+        graphContactPointsBuilder.add(new DefaultNode(endPoint, context, true));
+      }
+    }
+    this.graphContactPoints = graphContactPointsBuilder.build();
+    LOG.debug("[{}] Adding initial graph contact points {}", logPrefix, graphContactPoints);
   }
 
   /**
@@ -156,6 +179,10 @@ public class MetadataManager implements AsyncAutoCloseable {
    */
   public Set<DefaultNode> getContactPoints() {
     return contactPoints;
+  }
+
+  public Set<DefaultNode> getGraphContactPoints() {
+    return graphContactPoints;
   }
 
   /** Whether the default contact point was used (because none were provided explicitly). */
@@ -324,11 +351,11 @@ public class MetadataManager implements AsyncAutoCloseable {
       this.schemaParserFactory = context.getSchemaParserFactory();
     }
 
-    private Void refreshNodes(Iterable<NodeInfo> nodeInfos) {
+    private Void refreshNodes(Nodes nodes) {
       MetadataRefresh refresh =
           didFirstNodeListRefresh
-              ? new FullNodeListRefresh(nodeInfos)
-              : new InitialNodeListRefresh(nodeInfos, contactPoints);
+              ? new FullNodeListRefresh(nodes.getNodeInfos(), nodes.getGraphNodeInfos())
+              : new InitialNodeListRefresh(nodes.getNodeInfos(), contactPoints, nodes.getGraphNodeInfos(), graphContactPoints);
       didFirstNodeListRefresh = true;
       return apply(refresh);
     }

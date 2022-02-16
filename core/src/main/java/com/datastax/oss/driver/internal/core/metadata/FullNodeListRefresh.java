@@ -39,9 +39,11 @@ class FullNodeListRefresh extends NodesRefresh {
   private static final Logger LOG = LoggerFactory.getLogger(FullNodeListRefresh.class);
 
   @VisibleForTesting final Iterable<NodeInfo> nodeInfos;
+  @VisibleForTesting final Iterable<NodeInfo> graphNodeInfos;
 
-  FullNodeListRefresh(Iterable<NodeInfo> nodeInfos) {
+  FullNodeListRefresh(Iterable<NodeInfo> nodeInfos, Iterable<NodeInfo> graphNodeInfos) {
     this.nodeInfos = nodeInfos;
+    this.graphNodeInfos = graphNodeInfos;
   }
 
   @Override
@@ -52,6 +54,7 @@ class FullNodeListRefresh extends NodesRefresh {
     TokenFactoryRegistry tokenFactoryRegistry = context.getTokenFactoryRegistry();
 
     Map<UUID, Node> oldNodes = oldMetadata.getNodes();
+    Map<UUID, Node> oldGraphNodes = oldMetadata.getGraphNodes();
 
     Map<UUID, Node> added = new HashMap<>();
     Set<UUID> seen = new HashSet<>();
@@ -72,7 +75,7 @@ class FullNodeListRefresh extends NodesRefresh {
         seen.add(id);
         DefaultNode node = (DefaultNode) oldNodes.get(id);
         if (node == null) {
-          node = new DefaultNode(nodeInfo.getEndPoint(), context);
+          node = new DefaultNode(nodeInfo.getEndPoint(), context, nodeInfo.isGraphNode());
           LOG.debug("[{}] Adding new node {}", logPrefix, node);
           added.put(id, node);
         }
@@ -83,7 +86,30 @@ class FullNodeListRefresh extends NodesRefresh {
       }
     }
 
+    Map<UUID, Node> graphAdded = new HashMap<>();
+    Set<UUID> graphSeen = new HashSet<>();
+
+    for (NodeInfo graphNodeInfo : graphNodeInfos) {
+      UUID id = graphNodeInfo.getHostId();
+      if (graphSeen.contains(id)) {
+        LOG.warn(
+                "[{}] Found duplicate entries with graph host_id {} in system.peers, "
+                        + "keeping only the first one",
+                logPrefix,
+                id);
+      } else {
+        graphSeen.add(id);
+        DefaultNode graphNode = (DefaultNode) oldGraphNodes.get(id);
+        if (graphNode == null) {
+          graphNode = new DefaultNode(graphNodeInfo.getEndPoint(), context, graphNodeInfo.isGraphNode());
+          LOG.debug("[{}] Adding new graph node {}", logPrefix, graphNode);
+          graphAdded.put(id, graphNode);
+        }
+      }
+    }
+
     Set<UUID> removed = Sets.difference(oldNodes.keySet(), seen);
+    Set<UUID> graphRemoved = Sets.difference(oldGraphNodes.keySet(), graphSeen);
 
     if (added.isEmpty() && removed.isEmpty()) { // The list didn't change
       if (!oldMetadata.getTokenMap().isPresent() && tokenFactory != null) {
@@ -91,19 +117,27 @@ class FullNodeListRefresh extends NodesRefresh {
         // token map rebuild:
         return new Result(
             oldMetadata.withNodes(
-                oldMetadata.getNodes(), tokenMapEnabled, true, tokenFactory, context));
+                oldMetadata.getNodes(), oldMetadata.getGraphNodes(), tokenMapEnabled, true, tokenFactory, context));
       } else {
         // No need to create a new metadata instance
         return new Result(oldMetadata);
       }
     } else {
       ImmutableMap.Builder<UUID, Node> newNodesBuilder = ImmutableMap.builder();
+      ImmutableMap.Builder<UUID, Node> newGraphNodesBuilder = ImmutableMap.builder();
       ImmutableList.Builder<Object> eventsBuilder = ImmutableList.builder();
 
       newNodesBuilder.putAll(added);
       for (Map.Entry<UUID, Node> entry : oldNodes.entrySet()) {
         if (!removed.contains(entry.getKey())) {
           newNodesBuilder.put(entry.getKey(), entry.getValue());
+        }
+      }
+
+      newGraphNodesBuilder.putAll(graphAdded);
+      for (Map.Entry<UUID, Node> entry : oldGraphNodes.entrySet()) {
+        if (!graphRemoved.contains(entry.getKey())) {
+          newGraphNodesBuilder.put(entry.getKey(), entry.getValue());
         }
       }
 
@@ -117,7 +151,7 @@ class FullNodeListRefresh extends NodesRefresh {
 
       return new Result(
           oldMetadata.withNodes(
-              newNodesBuilder.build(), tokenMapEnabled, tokensChanged, tokenFactory, context),
+              newNodesBuilder.build(), newGraphNodesBuilder.build(), tokenMapEnabled, tokensChanged, tokenFactory, context),
           eventsBuilder.build());
     }
   }

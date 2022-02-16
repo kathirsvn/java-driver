@@ -50,12 +50,14 @@ import com.datastax.oss.protocol.internal.response.Ready;
 import com.datastax.oss.protocol.internal.response.Supported;
 import com.datastax.oss.protocol.internal.response.result.Rows;
 import com.datastax.oss.protocol.internal.response.result.SetKeyspace;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPipeline;
 import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Objects;
 import net.jcip.annotations.NotThreadSafe;
+import org.apache.tinkerpop.gremlin.driver.ResultSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -373,6 +375,11 @@ class ProtocolInitHandler extends ConnectInitHandler {
     @Override
     public String toString() {
       return "init query " + step;
+    }
+
+    @Override
+    public void onResponse(@NonNull ResultSet response) {
+
     }
   }
 

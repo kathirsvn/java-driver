@@ -85,6 +85,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import net.jcip.annotations.ThreadSafe;
+import org.apache.tinkerpop.gremlin.driver.ResultSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -194,7 +195,7 @@ public class GraphRequestHandler implements Throttled {
             ? new SimpleQueryPlan(initialStatement.getNode())
             : context
                 .getLoadBalancingPolicyWrapper()
-                .newQueryPlan(initialStatement, executionProfile.getName(), session);
+                .newGraphQueryPlan(initialStatement, executionProfile.getName(), session);
     sendRequest(initialStatement, null, queryPlan, 0, 0, true);
   }
 
@@ -251,7 +252,7 @@ public class GraphRequestHandler implements Throttled {
     DriverChannel channel = null;
     if (node == null || (channel = session.getChannel(node, logPrefix)) == null) {
       while (!result.isDone() && (node = queryPlan.poll()) != null) {
-        channel = session.getChannel(node, logPrefix);
+        channel = session.getGraphChannel(node, logPrefix);
         if (channel != null) {
           break;
         } else {
@@ -658,6 +659,11 @@ public class GraphRequestHandler implements Throttled {
         trackNodeError(node, t, nodeResponseTimeNanos);
         setFinalError(statement, t, node, execution);
       }
+    }
+
+    @Override
+    public void onResponse(@NonNull ResultSet response) {
+
     }
 
     private void processErrorResponse(Error errorMessage) {

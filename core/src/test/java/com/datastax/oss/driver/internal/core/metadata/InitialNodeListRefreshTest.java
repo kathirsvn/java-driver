@@ -46,7 +46,10 @@ public class InitialNodeListRefreshTest {
   private UUID hostId1;
   private UUID hostId2;
   private UUID hostId3;
-
+  private DefaultNode graphContactPoint1;
+  private DefaultNode graphContactPoint2;
+  private UUID graphHostId1;
+  private UUID graphHostId2;
   @Before
   public void setup() {
     when(context.getMetricsFactory()).thenReturn(metricsFactory);
@@ -59,6 +62,11 @@ public class InitialNodeListRefreshTest {
     hostId1 = UUID.randomUUID();
     hostId2 = UUID.randomUUID();
     hostId3 = UUID.randomUUID();
+
+    graphContactPoint1 = TestNodeFactory.newGraphContactPoint(3, context);
+    graphContactPoint2 = TestNodeFactory.newGraphContactPoint(4, context);
+    graphHostId1 = UUID.randomUUID();
+    graphHostId2 = UUID.randomUUID();
   }
 
   @Test
@@ -75,8 +83,20 @@ public class InitialNodeListRefreshTest {
                 .withEndPoint(contactPoint2.getEndPoint())
                 .withHostId(hostId2)
                 .build());
+    Iterable<NodeInfo> graphNewInfos =
+            ImmutableList.of(
+                    DefaultNodeInfo.builder()
+                            .withEndPoint(graphContactPoint1.getEndPoint())
+                            // in practice there are more fields, but hostId is enough to validate the logic
+                            .withHostId(graphHostId1)
+                            .build(),
+                    DefaultNodeInfo.builder()
+                            .withEndPoint(graphContactPoint2.getEndPoint())
+                            .withHostId(graphHostId2)
+                            .build());
     InitialNodeListRefresh refresh =
-        new InitialNodeListRefresh(newInfos, ImmutableSet.of(contactPoint1, contactPoint2));
+        new InitialNodeListRefresh(newInfos, ImmutableSet.of(contactPoint1, contactPoint2),
+                graphNewInfos, ImmutableSet.of(graphContactPoint1, graphContactPoint2));
 
     // When
     MetadataRefresh.Result result = refresh.compute(DefaultMetadata.EMPTY, false, context);
@@ -106,8 +126,21 @@ public class InitialNodeListRefreshTest {
                 .withHostId(hostId2)
                 .build(),
             DefaultNodeInfo.builder().withEndPoint(endPoint3).withHostId(hostId3).build());
+    Iterable<NodeInfo> graphNewInfos =
+            ImmutableList.of(
+                    DefaultNodeInfo.builder()
+                            .withEndPoint(graphContactPoint1.getEndPoint())
+                            // in practice there are more fields, but hostId is enough to validate the logic
+                            .withHostId(graphHostId1)
+                            .build(),
+                    DefaultNodeInfo.builder()
+                            .withEndPoint(graphContactPoint2.getEndPoint())
+                            .withHostId(graphHostId2)
+                            .build(),
+                    DefaultNodeInfo.builder().withEndPoint(endPoint3).withHostId(hostId3).build());
     InitialNodeListRefresh refresh =
-        new InitialNodeListRefresh(newInfos, ImmutableSet.of(contactPoint1, contactPoint2));
+        new InitialNodeListRefresh(newInfos, ImmutableSet.of(contactPoint1, contactPoint2)
+                                  ,graphNewInfos,ImmutableSet.of(graphContactPoint1, graphContactPoint2)  );
 
     // When
     MetadataRefresh.Result result = refresh.compute(DefaultMetadata.EMPTY, false, context);
@@ -137,8 +170,22 @@ public class InitialNodeListRefreshTest {
                 .withDatacenter("dc2")
                 .withHostId(hostId1)
                 .build());
+    Iterable<NodeInfo> graphNewInfos =
+            ImmutableList.of(
+                    DefaultNodeInfo.builder()
+                            .withEndPoint(graphContactPoint1.getEndPoint())
+                            // in practice there are more fields, but hostId is enough to validate the logic
+                            .withHostId(graphHostId1)
+                            .withDatacenter("dc1")
+                            .build(),
+                    DefaultNodeInfo.builder()
+                            .withEndPoint(graphContactPoint1.getEndPoint())
+                            .withDatacenter("dc2")
+                            .withHostId(graphHostId1)
+                            .build());
     InitialNodeListRefresh refresh =
-        new InitialNodeListRefresh(newInfos, ImmutableSet.of(contactPoint1));
+        new InitialNodeListRefresh(newInfos, ImmutableSet.of(contactPoint1)
+                                  , graphNewInfos, ImmutableSet.of(graphContactPoint1));
 
     // When
     MetadataRefresh.Result result = refresh.compute(DefaultMetadata.EMPTY, false, context);

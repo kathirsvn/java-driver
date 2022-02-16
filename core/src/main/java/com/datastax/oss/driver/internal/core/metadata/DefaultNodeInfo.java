@@ -46,6 +46,7 @@ public class DefaultNodeInfo implements NodeInfo {
   private final Map<String, Object> extras;
   private final UUID hostId;
   private final UUID schemaVersion;
+  private final boolean graphNode;
 
   private DefaultNodeInfo(Builder builder) {
     this.endPoint = builder.endPoint;
@@ -60,6 +61,7 @@ public class DefaultNodeInfo implements NodeInfo {
     this.hostId = builder.hostId;
     this.schemaVersion = builder.schemaVersion;
     this.extras = (builder.extras == null) ? Collections.emptyMap() : builder.extras;
+    this.graphNode = builder.graphNode;
   }
 
   @NonNull
@@ -127,6 +129,11 @@ public class DefaultNodeInfo implements NodeInfo {
     return schemaVersion;
   }
 
+  @Override
+  public boolean isGraphNode() {
+    return graphNode;
+  }
+
   @NotThreadSafe
   public static class Builder {
     private EndPoint endPoint;
@@ -141,6 +148,7 @@ public class DefaultNodeInfo implements NodeInfo {
     private Map<String, Object> extras;
     private UUID hostId;
     private UUID schemaVersion;
+    private boolean graphNode;
 
     public Builder withEndPoint(@NonNull EndPoint endPoint) {
       this.endPoint = endPoint;
@@ -204,6 +212,11 @@ public class DefaultNodeInfo implements NodeInfo {
         }
         this.extras.put(key, value);
       }
+      return this;
+    }
+
+    public Builder withGraphNode(@Nullable boolean graphNode) {
+      this.graphNode = graphNode;
       return this;
     }
 

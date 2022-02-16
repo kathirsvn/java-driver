@@ -42,10 +42,15 @@ class InitialNodeListRefresh extends NodesRefresh {
 
   @VisibleForTesting final Iterable<NodeInfo> nodeInfos;
   @VisibleForTesting final Set<DefaultNode> contactPoints;
+  @VisibleForTesting final Iterable<NodeInfo> graphNodeInfos;
+  @VisibleForTesting final Set<DefaultNode> graphContactPoints;
 
-  InitialNodeListRefresh(Iterable<NodeInfo> nodeInfos, Set<DefaultNode> contactPoints) {
+  InitialNodeListRefresh(Iterable<NodeInfo> nodeInfos, Set<DefaultNode> contactPoints,
+                         Iterable<NodeInfo> graphNodeInfos, Set<DefaultNode> graphContactPoints) {
     this.nodeInfos = nodeInfos;
     this.contactPoints = contactPoints;
+    this.graphNodeInfos = graphNodeInfos;
+    this.graphContactPoints = graphContactPoints;
   }
 
   @Override
@@ -74,7 +79,7 @@ class InitialNodeListRefresh extends NodesRefresh {
         EndPoint endPoint = nodeInfo.getEndPoint();
         DefaultNode node = findIn(contactPoints, endPoint);
         if (node == null) {
-          node = new DefaultNode(endPoint, context);
+          node = new DefaultNode(endPoint, context, false);
           LOG.debug("[{}] Adding new node {}", logPrefix, node);
         } else {
           LOG.debug("[{}] Copying contact point {}", logPrefix, node);
@@ -84,6 +89,30 @@ class InitialNodeListRefresh extends NodesRefresh {
         }
         copyInfos(nodeInfo, node, context);
         newNodes.put(hostId, node);
+      }
+    }
+
+    Map<UUID, DefaultNode> graphNewNodes = new HashMap<>();
+
+    for (NodeInfo graphNodeInfo : graphNodeInfos) {
+      UUID graphHostId = graphNodeInfo.getHostId();
+      if (graphNewNodes.containsKey(graphHostId)) {
+        LOG.warn(
+                "[{}] Found duplicate entries with host_id {} in system.peers, "
+                        + "keeping only the first one",
+                logPrefix,
+                graphHostId);
+      } else {
+        EndPoint graphEndPoint = graphNodeInfo.getEndPoint();
+        DefaultNode graphNode = findIn(graphContactPoints, graphEndPoint);
+        if (graphNode == null) {
+          graphNode = new DefaultNode(graphEndPoint, context, true);
+          LOG.debug("[{}] Adding new graph node {}", logPrefix, graphNode);
+        } else {
+          LOG.debug("[{}] Copying contact point {}", logPrefix, graphNode);
+        }
+        copyInfos(graphNodeInfo, graphNode, context);
+        graphNewNodes.put(graphHostId, graphNode);
       }
     }
 
@@ -102,7 +131,7 @@ class InitialNodeListRefresh extends NodesRefresh {
 
     return new Result(
         oldMetadata.withNodes(
-            ImmutableMap.copyOf(newNodes), tokenMapEnabled, true, tokenFactory, context),
+            ImmutableMap.copyOf(newNodes), ImmutableMap.copyOf(graphNewNodes), tokenMapEnabled, true, tokenFactory, context),
         eventsBuilder.build());
   }
 

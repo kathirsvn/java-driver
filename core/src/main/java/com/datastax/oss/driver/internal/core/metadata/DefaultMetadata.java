@@ -46,19 +46,22 @@ import org.slf4j.LoggerFactory;
 public class DefaultMetadata implements Metadata {
   private static final Logger LOG = LoggerFactory.getLogger(DefaultMetadata.class);
   public static DefaultMetadata EMPTY =
-      new DefaultMetadata(Collections.emptyMap(), Collections.emptyMap(), null, null);
+      new DefaultMetadata(Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap(), null, null);
 
   protected final Map<UUID, Node> nodes;
+  protected final Map<UUID, Node> graphNodes;
   protected final Map<CqlIdentifier, KeyspaceMetadata> keyspaces;
   protected final TokenMap tokenMap;
   protected final String clusterName;
 
   protected DefaultMetadata(
       Map<UUID, Node> nodes,
+      Map<UUID, Node> graphNodes,
       Map<CqlIdentifier, KeyspaceMetadata> keyspaces,
       TokenMap tokenMap,
       String clusterName) {
     this.nodes = nodes;
+    this.graphNodes = graphNodes;
     this.keyspaces = keyspaces;
     this.tokenMap = tokenMap;
     this.clusterName = clusterName;
@@ -68,6 +71,12 @@ public class DefaultMetadata implements Metadata {
   @Override
   public Map<UUID, Node> getNodes() {
     return nodes;
+  }
+
+  @NonNull
+  @Override
+  public Map<UUID, Node> getGraphNodes() {
+    return graphNodes;
   }
 
   @NonNull
@@ -101,6 +110,7 @@ public class DefaultMetadata implements Metadata {
    */
   public DefaultMetadata withNodes(
       Map<UUID, Node> newNodes,
+      Map<UUID, Node> newGraphNodes,
       boolean tokenMapEnabled,
       boolean tokensChanged,
       TokenFactory tokenFactory,
@@ -111,6 +121,7 @@ public class DefaultMetadata implements Metadata {
 
     return new DefaultMetadata(
         ImmutableMap.copyOf(newNodes),
+        ImmutableMap.copyOf(newGraphNodes),
         this.keyspaces,
         rebuildTokenMap(
             newNodes, keyspaces, tokenMapEnabled, forceFullRebuild, tokenFactory, context),
@@ -123,6 +134,7 @@ public class DefaultMetadata implements Metadata {
       InternalDriverContext context) {
     return new DefaultMetadata(
         this.nodes,
+        this.graphNodes,
         ImmutableMap.copyOf(newKeyspaces),
         rebuildTokenMap(nodes, newKeyspaces, tokenMapEnabled, false, null, context),
         context.getChannelFactory().getClusterName());

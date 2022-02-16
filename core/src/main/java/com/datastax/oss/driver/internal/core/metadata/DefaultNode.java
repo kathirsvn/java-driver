@@ -66,8 +66,9 @@ public class DefaultNode implements Node, Serializable {
   volatile long upSinceMillis;
 
   volatile NodeDistance distance;
+  volatile boolean graphNode;
 
-  public DefaultNode(EndPoint endPoint, InternalDriverContext context) {
+  public DefaultNode(EndPoint endPoint, InternalDriverContext context, boolean graphNode) {
     this.endPoint = endPoint;
     this.state = NodeState.UNKNOWN;
     this.distance = NodeDistance.IGNORED;
@@ -77,6 +78,7 @@ public class DefaultNode implements Node, Serializable {
     // problem because the node updater only needs the connect address to initialize.
     this.metricUpdater = context.getMetricsFactory().newNodeUpdater(this);
     this.upSinceMillis = -1;
+    this.graphNode = graphNode;
   }
 
   @NonNull
@@ -143,6 +145,11 @@ public class DefaultNode implements Node, Serializable {
   @Override
   public UUID getSchemaVersion() {
     return schemaVersion;
+  }
+
+  @Override
+  public boolean isGraphNode() {
+    return graphNode;
   }
 
   @NonNull

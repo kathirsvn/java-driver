@@ -32,6 +32,7 @@ import com.datastax.oss.protocol.internal.request.query.QueryOptions;
 import com.datastax.oss.protocol.internal.response.Result;
 import com.datastax.oss.protocol.internal.response.result.Prepared;
 import com.datastax.oss.protocol.internal.response.result.Rows;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.ScheduledFuture;
 import java.net.InetAddress;
@@ -44,6 +45,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
 import net.jcip.annotations.ThreadSafe;
+import org.apache.tinkerpop.gremlin.driver.ResultSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -194,6 +196,11 @@ public class AdminRequestHandler<ResultT> implements ResponseCallback {
     } else {
       setFinalError(new AssertionError("Unhandled response type" + expectedResponseType));
     }
+  }
+
+  @Override
+  public void onResponse(@NonNull ResultSet response) {
+
   }
 
   protected boolean setFinalResult(ResultT result) {

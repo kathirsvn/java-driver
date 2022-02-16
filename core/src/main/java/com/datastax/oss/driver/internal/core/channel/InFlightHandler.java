@@ -32,6 +32,7 @@ import com.datastax.oss.protocol.internal.Frame;
 import com.datastax.oss.protocol.internal.Message;
 import com.datastax.oss.protocol.internal.request.Query;
 import com.datastax.oss.protocol.internal.response.result.SetKeyspace;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import io.netty.channel.ChannelDuplexHandler;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandler;
@@ -42,6 +43,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import net.jcip.annotations.NotThreadSafe;
+import org.apache.tinkerpop.gremlin.driver.ResultSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -450,6 +452,11 @@ public class InFlightHandler extends ChannelDuplexHandler {
         abortAllInFlight(setKeyspaceException, this);
         ctx.channel().close();
       }
+    }
+
+    @Override
+    public void onResponse(@NonNull ResultSet response) {
+
     }
   }
 }

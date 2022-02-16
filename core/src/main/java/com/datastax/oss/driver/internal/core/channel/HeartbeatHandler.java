@@ -21,11 +21,13 @@ import com.datastax.oss.driver.api.core.connection.HeartbeatException;
 import com.datastax.oss.protocol.internal.Message;
 import com.datastax.oss.protocol.internal.request.Options;
 import com.datastax.oss.protocol.internal.response.Supported;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.timeout.IdleState;
 import io.netty.handler.timeout.IdleStateEvent;
 import io.netty.handler.timeout.IdleStateHandler;
 import net.jcip.annotations.NotThreadSafe;
+import org.apache.tinkerpop.gremlin.driver.ResultSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -107,6 +109,11 @@ class HeartbeatHandler extends IdleStateHandler {
       // Notify InFlightHandler.
       ctx.fireExceptionCaught(
           new HeartbeatException(ctx.channel().remoteAddress(), message, cause));
+    }
+
+    @Override
+    public void onResponse(@NonNull ResultSet response) {
+
     }
   }
 }

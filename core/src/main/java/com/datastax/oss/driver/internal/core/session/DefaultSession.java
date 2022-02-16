@@ -57,6 +57,8 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
+
 import net.jcip.annotations.ThreadSafe;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -84,8 +86,8 @@ public class DefaultSession implements CqlSession {
   private static final AtomicInteger INSTANCE_COUNT = new AtomicInteger();
 
   public static CompletionStage<CqlSession> init(
-      InternalDriverContext context, Set<EndPoint> contactPoints, CqlIdentifier keyspace) {
-    return new DefaultSession(context, contactPoints).init(keyspace);
+          InternalDriverContext context, Set<EndPoint> contactPoints, Set<EndPoint> graphContactPoints, CqlIdentifier keyspace) {
+    return new DefaultSession(context, contactPoints, graphContactPoints).init(keyspace);
   }
 
   private final InternalDriverContext context;
@@ -97,46 +99,46 @@ public class DefaultSession implements CqlSession {
   private final PoolManager poolManager;
   private final SessionMetricUpdater metricUpdater;
 
-  private DefaultSession(InternalDriverContext context, Set<EndPoint> contactPoints) {
+  private DefaultSession(InternalDriverContext context, Set<EndPoint> contactPoints, Set<EndPoint> graphContactPoints) {
     int instanceCount = INSTANCE_COUNT.incrementAndGet();
     int threshold =
-        context.getConfig().getDefaultProfile().getInt(DefaultDriverOption.SESSION_LEAK_THRESHOLD);
+            context.getConfig().getDefaultProfile().getInt(DefaultDriverOption.SESSION_LEAK_THRESHOLD);
     LOG.debug(
-        "Creating new session {} ({} live instances)", context.getSessionName(), instanceCount);
+            "Creating new session {} ({} live instances)", context.getSessionName(), instanceCount);
     if (threshold > 0 && instanceCount > threshold) {
       LOG.warn(
-          "You have too many session instances: {} active, expected less than {} "
-              + "(see '{}' in the configuration)",
-          instanceCount,
-          threshold,
-          DefaultDriverOption.SESSION_LEAK_THRESHOLD.getPath());
+              "You have too many session instances: {} active, expected less than {} "
+                      + "(see '{}' in the configuration)",
+              instanceCount,
+              threshold,
+              DefaultDriverOption.SESSION_LEAK_THRESHOLD.getPath());
     }
 
     this.logPrefix = context.getSessionName();
     this.adminExecutor = context.getNettyOptions().adminEventExecutorGroup().next();
     try {
       this.context = context;
-      this.singleThreaded = new SingleThreaded(context, contactPoints);
+      this.singleThreaded = new SingleThreaded(context, contactPoints, graphContactPoints);
       this.metadataManager = context.getMetadataManager();
       this.processorRegistry = context.getRequestProcessorRegistry();
       this.poolManager = context.getPoolManager();
       this.metricUpdater = context.getMetricsFactory().getSessionUpdater();
     } catch (Throwable t) {
       LOG.debug(
-          "Error creating session {} ({} live instances)",
-          context.getSessionName(),
-          INSTANCE_COUNT.decrementAndGet());
+              "Error creating session {} ({} live instances)",
+              context.getSessionName(),
+              INSTANCE_COUNT.decrementAndGet());
       // Rethrow but make sure we release any resources allocated by Netty. At this stage there are
       // no scheduled tasks on the event loops so getNow() won't block.
       try {
         context.getNettyOptions().onClose().getNow();
       } catch (Throwable suppressed) {
         Loggers.warnWithException(
-            LOG,
-            "[{}] Error while closing NettyOptions "
-                + "(suppressed because we're already handling an init failure)",
-            logPrefix,
-            suppressed);
+                LOG,
+                "[{}] Error while closing NettyOptions "
+                        + "(suppressed because we're already handling an init failure)",
+                logPrefix,
+                suppressed);
       }
       throw t;
     }
@@ -174,8 +176,8 @@ public class DefaultSession implements CqlSession {
   @Override
   public CompletionStage<Metadata> refreshSchemaAsync() {
     return metadataManager
-        .refreshSchema(null, true, true)
-        .thenApply(RefreshSchemaResult::getMetadata);
+            .refreshSchema(null, true, true)
+            .thenApply(RefreshSchemaResult::getMetadata);
   }
 
   @NonNull
@@ -222,17 +224,37 @@ public class DefaultSession implements CqlSession {
   @Nullable
   @Override
   public <RequestT extends Request, ResultT> ResultT execute(
-      @NonNull RequestT request, @NonNull GenericType<ResultT> resultType) {
+          @NonNull RequestT request, @NonNull GenericType<ResultT> resultType) {
     RequestProcessor<RequestT, ResultT> processor =
-        processorRegistry.processorFor(request, resultType);
+            processorRegistry.processorFor(request, resultType);
     return isClosed()
-        ? processor.newFailure(new IllegalStateException("Session is closed"))
-        : processor.process(request, this, context, logPrefix);
+            ? processor.newFailure(new IllegalStateException("Session is closed"))
+            : processor.process(request, this, context, logPrefix);
   }
 
   @Nullable
   public DriverChannel getChannel(@NonNull Node node, @NonNull String logPrefix) {
     ChannelPool pool = poolManager.getPools().get(node);
+    if (pool == null) {
+      LOG.trace("[{}] No pool to {}, skipping", logPrefix, node);
+      return null;
+    } else {
+      DriverChannel channel = pool.next();
+      if (channel == null) {
+        LOG.trace("[{}] Pool returned no channel for {}, skipping", logPrefix, node);
+        return null;
+      } else if (channel.closeFuture().isDone()) {
+        LOG.trace("[{}] Pool returned closed connection to {}, skipping", logPrefix, node);
+        return null;
+      } else {
+        return channel;
+      }
+    }
+  }
+
+  @Nullable
+  public DriverChannel getGraphChannel(@NonNull Node node, @NonNull String logPrefix) {
+    ChannelPool pool = poolManager.getGraphPools().get(node);
     if (pool == null) {
       LOG.trace("[{}] No pool to {}, skipping", logPrefix, node);
       return null;
@@ -287,11 +309,11 @@ public class DefaultSession implements CqlSession {
       } catch (RejectedExecutionException e) {
         // Checking the future is racy, there is still a tiny window that could get us here.
         LOG.warn(
-            "[{}] Ignoring terminated executor. "
-                + "This generally happens if you close the session multiple times concurrently, "
-                + "and can be safely ignored if the close() call returns normally.",
-            logPrefix,
-            e);
+                "[{}] Ignoring terminated executor. "
+                        + "This generally happens if you close the session multiple times concurrently, "
+                        + "and can be safely ignored if the close() call returns normally.",
+                logPrefix,
+                e);
       }
     }
     return singleThreaded.closeFuture;
@@ -301,6 +323,7 @@ public class DefaultSession implements CqlSession {
 
     private final InternalDriverContext context;
     private final Set<EndPoint> initialContactPoints;
+    private final Set<EndPoint> initialGraphContactPoints;
     private final NodeStateManager nodeStateManager;
     private final SchemaListenerNotifier schemaListenerNotifier;
     private final CompletableFuture<CqlSession> initFuture = new CompletableFuture<>();
@@ -309,19 +332,20 @@ public class DefaultSession implements CqlSession {
     private boolean closeWasCalled;
     private boolean forceCloseWasCalled;
 
-    private SingleThreaded(InternalDriverContext context, Set<EndPoint> contactPoints) {
+    private SingleThreaded(InternalDriverContext context, Set<EndPoint> contactPoints, Set<EndPoint> graphContactPoints) {
       this.context = context;
       this.nodeStateManager = new NodeStateManager(context);
       this.initialContactPoints = contactPoints;
+      this.initialGraphContactPoints = graphContactPoints;
       this.schemaListenerNotifier =
-          new SchemaListenerNotifier(
-              context.getSchemaChangeListener(), context.getEventBus(), adminExecutor);
+              new SchemaListenerNotifier(
+                      context.getSchemaChangeListener(), context.getEventBus(), adminExecutor);
       context
-          .getEventBus()
-          .register(
-              NodeStateEvent.class, RunOrSchedule.on(adminExecutor, this::onNodeStateChanged));
+              .getEventBus()
+              .register(
+                      NodeStateEvent.class, RunOrSchedule.on(adminExecutor, this::onNodeStateChanged));
       CompletableFutures.propagateCancellation(
-          this.initFuture, context.getTopologyMonitor().initFuture());
+              this.initFuture, context.getTopologyMonitor().initFuture());
     }
 
     private void init(CqlIdentifier keyspace) {
@@ -350,80 +374,83 @@ public class DefaultSession implements CqlSession {
       } catch (Throwable error) {
         RunOrSchedule.on(adminExecutor, this::closePolicies);
         context
-            .getNettyOptions()
-            .onClose()
-            .addListener(
-                f -> {
-                  if (!f.isSuccess()) {
-                    Loggers.warnWithException(
-                        LOG,
-                        "[{}] Error while closing NettyOptions "
-                            + "(suppressed because we're already handling an init failure)",
-                        logPrefix,
-                        f.cause());
-                  }
-                  initFuture.completeExceptionally(error);
-                });
+                .getNettyOptions()
+                .onClose()
+                .addListener(
+                        f -> {
+                          if (!f.isSuccess()) {
+                            Loggers.warnWithException(
+                                    LOG,
+                                    "[{}] Error while closing NettyOptions "
+                                            + "(suppressed because we're already handling an init failure)",
+                                    logPrefix,
+                                    f.cause());
+                          }
+                          initFuture.completeExceptionally(error);
+                        });
         LOG.debug(
-            "Error initializing new session {} ({} live instances)",
-            context.getSessionName(),
-            INSTANCE_COUNT.decrementAndGet());
+                "Error initializing new session {} ({} live instances)",
+                context.getSessionName(),
+                INSTANCE_COUNT.decrementAndGet());
         return;
       }
 
       closeFuture.whenComplete(
-          (v, error) ->
-              LOG.debug(
-                  "Closing session {} ({} live instances)",
-                  context.getSessionName(),
-                  INSTANCE_COUNT.decrementAndGet()));
+              (v, error) ->
+                      LOG.debug(
+                              "Closing session {} ({} live instances)",
+                              context.getSessionName(),
+                              INSTANCE_COUNT.decrementAndGet()));
 
       MetadataManager metadataManager = context.getMetadataManager();
       metadataManager.addContactPoints(initialContactPoints);
+      metadataManager.addGraphContactPoints(initialGraphContactPoints);
       context
-          .getTopologyMonitor()
-          .init()
-          .thenCompose(v -> metadataManager.refreshNodes())
-          .thenCompose(v -> checkProtocolVersion())
-          .thenCompose(v -> initialSchemaRefresh())
-          .thenCompose(v -> initializePools(keyspace))
-          .whenComplete(
-              (v, error) -> {
-                if (error == null) {
-                  LOG.debug("[{}] Initialization complete, ready", logPrefix);
-                  notifyListeners();
-                  initFuture.complete(DefaultSession.this);
-                } else {
-                  LOG.debug("[{}] Initialization failed, force closing", logPrefix, error);
-                  forceCloseAsync()
-                      .whenComplete(
-                          (v1, error1) -> {
-                            if (error1 != null) {
-                              error.addSuppressed(error1);
-                            }
-                            initFuture.completeExceptionally(error);
-                          });
-                }
-              });
+              .getTopologyMonitor()
+              .init()
+              .thenCompose(v -> metadataManager.refreshNodes())
+              .thenCompose(v -> checkProtocolVersion())
+              .thenCompose(v -> initialSchemaRefresh())
+              .thenCompose(v -> initializePools(keyspace))
+              .whenComplete(
+                      (v, error) -> {
+                        if (error == null) {
+                          LOG.debug("[{}] Initialization complete, ready", logPrefix);
+                          notifyListeners();
+                          initFuture.complete(DefaultSession.this);
+                        } else {
+                          LOG.debug("[{}] Initialization failed, force closing", logPrefix, error);
+                          forceCloseAsync()
+                                  .whenComplete(
+                                          (v1, error1) -> {
+                                            if (error1 != null) {
+                                              error.addSuppressed(error1);
+                                            }
+                                            initFuture.completeExceptionally(error);
+                                          });
+                        }
+                      });
     }
 
     private CompletionStage<Void> checkProtocolVersion() {
       try {
         boolean protocolWasForced =
-            context.getConfig().getDefaultProfile().isDefined(DefaultDriverOption.PROTOCOL_VERSION);
+                context.getConfig().getDefaultProfile().isDefined(DefaultDriverOption.PROTOCOL_VERSION);
         if (!protocolWasForced) {
           ProtocolVersion currentVersion = context.getProtocolVersion();
           ProtocolVersion bestVersion =
-              context
-                  .getProtocolVersionRegistry()
-                  .highestCommon(metadataManager.getMetadata().getNodes().values());
+                  context
+                          .getProtocolVersionRegistry()
+                          .highestCommon(metadataManager.getMetadata().getNodes().values().stream()
+                                  .filter(node -> !node.isGraphNode()).
+                                  collect(Collectors.toList()));
           if (bestVersion.getCode() < currentVersion.getCode()) {
             LOG.info(
-                "[{}] Negotiated protocol version {} for the initial contact point, "
-                    + "but other nodes only support {}, downgrading",
-                logPrefix,
-                currentVersion,
-                bestVersion);
+                    "[{}] Negotiated protocol version {} for the initial contact point, "
+                            + "but other nodes only support {}, downgrading",
+                    logPrefix,
+                    currentVersion,
+                    bestVersion);
             context.getChannelFactory().setProtocolVersion(bestVersion);
 
             // Note that, with the default topology monitor, the control connection is already
@@ -433,11 +460,11 @@ public class DefaultSession implements CqlSession {
             // if it reconnects to another node.
           } else if (bestVersion.getCode() > currentVersion.getCode()) {
             LOG.info(
-                "[{}] Negotiated protocol version {} for the initial contact point, "
-                    + "but cluster seems to support {}, keeping the negotiated version",
-                logPrefix,
-                currentVersion,
-                bestVersion);
+                    "[{}] Negotiated protocol version {} for the initial contact point, "
+                            + "but cluster seems to support {}, keeping the negotiated version",
+                    logPrefix,
+                    currentVersion,
+                    bestVersion);
           }
         }
         return CompletableFuture.completedFuture(null);
@@ -449,17 +476,17 @@ public class DefaultSession implements CqlSession {
     private CompletionStage<RefreshSchemaResult> initialSchemaRefresh() {
       try {
         return metadataManager
-            .refreshSchema(null, false, true)
-            .exceptionally(
-                error -> {
-                  Loggers.warnWithException(
-                      LOG,
-                      "[{}] Unexpected error while refreshing schema during initialization, "
-                          + "proceeding without schema metadata",
-                      logPrefix,
-                      error);
-                  return null;
-                });
+                .refreshSchema(null, false, true)
+                .exceptionally(
+                        error -> {
+                          Loggers.warnWithException(
+                                  LOG,
+                                  "[{}] Unexpected error while refreshing schema during initialization, "
+                                          + "proceeding without schema metadata",
+                                  logPrefix,
+                                  error);
+                          return null;
+                        });
       } catch (Throwable throwable) {
         return CompletableFutures.failedFuture(throwable);
       }
@@ -482,42 +509,42 @@ public class DefaultSession implements CqlSession {
           lifecycleListener.onSessionReady();
         } catch (Throwable t) {
           Loggers.warnWithException(
-              LOG,
-              "[{}] Error while notifying {} of session ready",
-              logPrefix,
-              lifecycleListener,
-              t);
+                  LOG,
+                  "[{}] Error while notifying {} of session ready",
+                  logPrefix,
+                  lifecycleListener,
+                  t);
         }
       }
       try {
         context.getNodeStateListener().onSessionReady(DefaultSession.this);
       } catch (Throwable t) {
         Loggers.warnWithException(
-            LOG,
-            "[{}] Error while notifying {} of session ready",
-            logPrefix,
-            context.getNodeStateListener(),
-            t);
+                LOG,
+                "[{}] Error while notifying {} of session ready",
+                logPrefix,
+                context.getNodeStateListener(),
+                t);
       }
       try {
         schemaListenerNotifier.onSessionReady(DefaultSession.this);
       } catch (Throwable t) {
         Loggers.warnWithException(
-            LOG,
-            "[{}] Error while notifying {} of session ready",
-            logPrefix,
-            schemaListenerNotifier,
-            t);
+                LOG,
+                "[{}] Error while notifying {} of session ready",
+                logPrefix,
+                schemaListenerNotifier,
+                t);
       }
       try {
         context.getRequestTracker().onSessionReady(DefaultSession.this);
       } catch (Throwable t) {
         Loggers.warnWithException(
-            LOG,
-            "[{}] Error while notifying {} of session ready",
-            logPrefix,
-            context.getRequestTracker(),
-            t);
+                LOG,
+                "[{}] Error while notifying {} of session ready",
+                logPrefix,
+                context.getRequestTracker(),
+                t);
       }
     }
 
@@ -549,7 +576,7 @@ public class DefaultSession implements CqlSession {
         childrenCloseStages.add(closeable.closeAsync());
       }
       CompletableFutures.whenAllDone(
-          childrenCloseStages, () -> onChildrenClosed(childrenCloseStages), adminExecutor);
+              childrenCloseStages, () -> onChildrenClosed(childrenCloseStages), adminExecutor);
     }
 
     private void forceClose() {
@@ -559,9 +586,9 @@ public class DefaultSession implements CqlSession {
       }
       forceCloseWasCalled = true;
       LOG.debug(
-          "[{}] Starting forced shutdown (was {}closed before)",
-          logPrefix,
-          (closeWasCalled ? "" : "not "));
+              "[{}] Starting forced shutdown (was {}closed before)",
+              logPrefix,
+              (closeWasCalled ? "" : "not "));
 
       if (closeWasCalled) {
         // onChildrenClosed has already been scheduled
@@ -575,7 +602,7 @@ public class DefaultSession implements CqlSession {
           childrenCloseStages.add(closeable.forceCloseAsync());
         }
         CompletableFutures.whenAllDone(
-            childrenCloseStages, () -> onChildrenClosed(childrenCloseStages), adminExecutor);
+                childrenCloseStages, () -> onChildrenClosed(childrenCloseStages), adminExecutor);
       }
     }
 
@@ -585,16 +612,16 @@ public class DefaultSession implements CqlSession {
         warnIfFailed(stage);
       }
       context
-          .getNettyOptions()
-          .onClose()
-          .addListener(
-              f -> {
-                if (!f.isSuccess()) {
-                  closeFuture.completeExceptionally(f.cause());
-                } else {
-                  closeFuture.complete(null);
-                }
-              });
+              .getNettyOptions()
+              .onClose()
+              .addListener(
+                      f -> {
+                        if (!f.isSuccess()) {
+                          closeFuture.completeExceptionally(f.cause());
+                        } else {
+                          closeFuture.complete(null);
+                        }
+                      });
     }
 
     private void warnIfFailed(CompletionStage<Void> stage) {
@@ -602,10 +629,10 @@ public class DefaultSession implements CqlSession {
       assert future.isDone();
       if (future.isCompletedExceptionally()) {
         Loggers.warnWithException(
-            LOG,
-            "[{}] Unexpected error while closing",
-            logPrefix,
-            CompletableFutures.getFailed(future));
+                LOG,
+                "[{}] Unexpected error while closing",
+                logPrefix,
+                CompletableFutures.getFailed(future));
       }
     }
 
@@ -616,16 +643,16 @@ public class DefaultSession implements CqlSession {
       // proceed to close the other policies.
       List<AutoCloseable> policies = new ArrayList<>();
       for (Supplier<AutoCloseable> supplier :
-          ImmutableList.<Supplier<AutoCloseable>>of(
-              context::getReconnectionPolicy,
-              context::getLoadBalancingPolicyWrapper,
-              context::getAddressTranslator,
-              context::getConfigLoader,
-              context::getNodeStateListener,
-              context::getSchemaChangeListener,
-              context::getRequestTracker,
-              context::getRequestThrottler,
-              context::getTimestampGenerator)) {
+              ImmutableList.<Supplier<AutoCloseable>>of(
+                      context::getReconnectionPolicy,
+                      context::getLoadBalancingPolicyWrapper,
+                      context::getAddressTranslator,
+                      context::getConfigLoader,
+                      context::getNodeStateListener,
+                      context::getSchemaChangeListener,
+                      context::getRequestTracker,
+                      context::getRequestThrottler,
+                      context::getTimestampGenerator)) {
         try {
           policies.add(supplier.get());
         } catch (Throwable t) {
@@ -666,8 +693,8 @@ public class DefaultSession implements CqlSession {
 
     private List<AsyncAutoCloseable> internalComponentsToClose() {
       ImmutableList.Builder<AsyncAutoCloseable> components =
-          ImmutableList.<AsyncAutoCloseable>builder()
-              .add(poolManager, nodeStateManager, metadataManager);
+              ImmutableList.<AsyncAutoCloseable>builder()
+                      .add(poolManager, nodeStateManager, metadataManager);
 
       // Same as closePolicies(): make sure we don't trigger errors by accessing context components
       // that had failed to initialize:

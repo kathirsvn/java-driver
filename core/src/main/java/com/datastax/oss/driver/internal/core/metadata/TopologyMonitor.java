@@ -108,7 +108,7 @@ public interface TopologyMonitor extends AsyncAutoCloseable {
    * @return a future that completes with the information. We assume that the full node list will
    *     always be returned in a single message (no paging).
    */
-  CompletionStage<Iterable<NodeInfo>> refreshNodeList();
+  CompletionStage<Nodes> refreshNodeList();
 
   /**
    * Checks whether the nodes in the cluster agree on a common schema version.

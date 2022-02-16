@@ -32,7 +32,7 @@ public class DefaultNodeTest {
   @Test
   public void should_have_expected_string_representation() {
 
-    DefaultNode node = new DefaultNode(endPoint, MockedDriverContextFactory.defaultDriverContext());
+    DefaultNode node = new DefaultNode(endPoint, MockedDriverContextFactory.defaultDriverContext(), false);
     node.hostId = hostId;
 
     String expected =
@@ -45,7 +45,7 @@ public class DefaultNodeTest {
   @Test
   public void should_have_expected_string_representation_if_hostid_is_null() {
 
-    DefaultNode node = new DefaultNode(endPoint, MockedDriverContextFactory.defaultDriverContext());
+    DefaultNode node = new DefaultNode(endPoint, MockedDriverContextFactory.defaultDriverContext(), false);
     node.hostId = null;
 
     String expected =

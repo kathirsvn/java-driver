@@ -42,6 +42,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import net.jcip.annotations.ThreadSafe;
+import org.apache.tinkerpop.gremlin.driver.Result;
 
 /**
  * Handles a Graph request that supports multiple response messages (a.k.a. continuous paging
@@ -180,6 +181,20 @@ public class ContinuousGraphRequestHandler
         !metadata.isLastContinuousPage,
         this,
         subProtocol);
+  }
+
+
+  @Override
+  public AsyncGraphResultSet createGraphResultSet(
+          @NonNull GraphStatement<?> statement,
+          @NonNull List<Result> resultList,
+          @NonNull ExecutionInfo executionInfo,
+          @NonNull ColumnDefinitions columnDefinitions) {
+    Queue<GraphNode> graphNodes = new ArrayDeque<>();
+    for(Result result : resultList){
+      graphNodes.offer(GraphConversions.toGraphNode(result));
+    }
+    return new DefaultAsyncGraphResultSet(executionInfo, graphNodes, GraphProtocol.GRAPH_BINARY_1_0);
   }
 
   @Override
